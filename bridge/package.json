@@ -29,6 +29,7 @@
     "start": "node dist/cli.js claude"
   },
   "dependencies": {
+    "@agentdeck/bridge": "link:",
     "@agentdeck/hooks": "workspace:*",
     "@agentdeck/shared": "workspace:*",
     "@anthropic-ai/sdk": "^0.111.0",

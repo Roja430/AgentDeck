@@ -15,7 +15,13 @@ export const EFFORT_LEVELS = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] a
 
 export type EffortLevel = typeof EFFORT_LEVELS[number];
 
-/** Where a reported level sits in the roll, or 0 (`auto`) when unrecognised. */
+/**
+ * Where a reported level sits in the roll, or 0 (`auto`) when unrecognised.
+ *
+ * Callers must not pass an absent level to mean "wherever": `auto` is a real
+ * setting, so falling back to it turns "the agent has not told us" into a
+ * claim that the agent is on auto. Check for the level first.
+ */
 export function indexOfLevel(level: string | undefined): number {
   if (!level) return 0;
   const i = (EFFORT_LEVELS as readonly string[]).indexOf(level.toLowerCase());

@@ -71,11 +71,17 @@ export function updateEffortDial(
   sessionState = state;
   modelName = model;
   effortLevel = effort;
-  // Once the agent reports the level the cursor was aiming at, the pending
-  // change has landed and the cursor goes back to following the agent.
-  if (!adjusting || EFFORT_LEVELS[cursor] === effort?.toLowerCase()) {
-    cursor = indexOfLevel(effort);
-    adjusting = false;
+  // Only a *reported* level may move the cursor. The agent often reports none —
+  // the parser learns it from a "<level> effort" line it may never see — and
+  // treating that absence as a value snapped the dial to `auto`, which is a
+  // claim about the agent rather than an admission of not knowing.
+  if (effort) {
+    // Once the agent reports the level the cursor was aiming at, the pending
+    // change has landed and the cursor goes back to following the agent.
+    if (!adjusting || EFFORT_LEVELS[cursor] === effort.toLowerCase()) {
+      cursor = indexOfLevel(effort);
+      adjusting = false;
+    }
   }
   refreshEffortDials();
 }
@@ -92,9 +98,11 @@ function refreshEffortDials(): void {
     canvas: svgToDataUrl(
       isDaemonConnected()
         ? renderEffortDial({
-          // Show where the cursor is, not what the agent last reported — the
-          // dial has to answer "what will pressing do" while being turned.
-          effortLevel: EFFORT_LEVELS[cursor],
+          // While being turned the dial must answer "what will pressing do", so
+          // it shows the staged level. At rest it shows what the agent reports —
+          // and nothing (the renderer's "—") when the agent has not said, rather
+          // than inventing a level it might not be running.
+          effortLevel: adjusting ? EFFORT_LEVELS[cursor] : effortLevel,
           modelName,
           idle: sessionState === State.IDLE,
           adjusting,
@@ -156,7 +164,9 @@ export class EffortDialAction extends SingletonAction {
   /** Abandon a staged level and snap back to what the agent reports. */
   override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
     if (!isDaemonConnected() || !adjusting) return;
-    cursor = indexOfLevel(effortLevel);
+    // With no reported level there is nothing to snap back to; leaving the
+    // cursor where it is beats moving it somewhere the agent never claimed.
+    if (effortLevel) cursor = indexOfLevel(effortLevel);
     adjusting = false;
     dlog('EffortDial', 'tap → cancel');
     refreshEffortDials();
