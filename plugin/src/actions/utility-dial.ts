@@ -30,6 +30,7 @@ import {
   getVolumeSettings,
   setOutputVolume,
   setOutputMuted,
+  HAS_OSASCRIPT,
 } from '../utility-modes/macos.js';
 import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
 
@@ -71,6 +72,9 @@ async function syncFromSystem(): Promise<void> {
 
 function startPolling(): void {
   stopPolling();
+  // Nothing to poll where osascript does not exist — the dial has no system
+  // volume to read, and a timer here would just retry a doomed spawn forever.
+  if (!HAS_OSASCRIPT) return;
   pollTimer = setInterval(() => { void syncFromSystem(); }, POLL_INTERVAL);
 }
 
@@ -83,8 +87,8 @@ function stopPolling(): void {
 
 
 export function initUtilityDial(): void {
-  dinfo('VolumeDial', 'initUtilityDial');
-  void syncFromSystem().then(() => refreshUtilityDials());
+  dinfo('VolumeDial', `initUtilityDial (system volume ${HAS_OSASCRIPT ? 'available' : 'unavailable on this platform'})`);
+  if (HAS_OSASCRIPT) void syncFromSystem().then(() => refreshUtilityDials());
   startPolling();
 }
 

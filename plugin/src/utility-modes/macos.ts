@@ -4,11 +4,20 @@
  */
 import { execFile } from 'child_process';
 
+/** `osascript` exists only on macOS. */
+export const HAS_OSASCRIPT = process.platform === 'darwin';
+
 // ---- Core executor ----
 
 function osascript(script: string): Promise<string> {
+  // Reject without spawning off macOS. The volume dial polls this on a timer,
+  // so an unguarded call meant a doomed process every two seconds for the whole
+  // life of the plugin on Windows and Linux — plus an ENOENT warning per tick.
+  if (!HAS_OSASCRIPT) {
+    return Promise.reject(new Error('osascript is macOS-only'));
+  }
   return new Promise((resolve, reject) => {
-    execFile('osascript', ['-e', script], { timeout: 5000 }, (err, stdout) => {
+    execFile('osascript', ['-e', script], { timeout: 5000, windowsHide: true }, (err, stdout) => {
       if (err) reject(err);
       else resolve(stdout.trim());
     });
