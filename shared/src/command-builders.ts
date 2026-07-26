@@ -20,6 +20,7 @@ import type {
   UtilityCommand,
   SwitchAgentCommand,
   SetEffortCommand,
+  SetModelCommand,
   NewSessionCommand,
   ForkSessionCommand,
   FocusSessionCommand,
@@ -62,8 +63,8 @@ export const agentCommand = {
   queryUsage(): QueryUsageCommand {
     return { type: "query_usage" };
   },
-  querySessionTimeline(sessionId: string): QuerySessionTimelineCommand {
-    return { type: "query_session_timeline", sessionId };
+  querySessionTimeline(sessionId: string, since?: number): QuerySessionTimelineCommand {
+    return { type: "query_session_timeline", sessionId, since };
   },
   diag(action: 'dump' | 'analyze'): DiagCommand {
     return { type: "diag", action };
@@ -74,8 +75,11 @@ export const agentCommand = {
   switchAgent(agent: 'openclaw' | 'claude-code'): SwitchAgentCommand {
     return { type: "switch_agent", agent };
   },
-  setEffort(action: 'increase' | 'decrease' | 'commit' | 'cancel', sessionId?: string): SetEffortCommand {
-    return { type: "set_effort", action, sessionId };
+  setEffort(action: 'increase' | 'decrease' | 'commit' | 'cancel' | 'set', level?: string, sessionId?: string): SetEffortCommand {
+    return { type: "set_effort", action, level, sessionId };
+  },
+  setModel(model: string, sessionId?: string): SetModelCommand {
+    return { type: "set_model", model, sessionId };
   },
   newSession(agent: string, cwd: string): NewSessionCommand {
     return { type: "new_session", agent, cwd };

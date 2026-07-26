@@ -26,6 +26,13 @@ import Foundation
 /// `increase`/`decrease` open the picker first if it is not already open — the bridge tracks
 /// that, since it owns the PTY.
 ///
+/// Switch the agent's model — `/model <name>` in Claude Code.
+///
+/// Direct, unlike the keypad's MODEL key, which types `/model`, waits for the picker to
+/// render, and infers completion from the model name changing. The candidates come from
+/// `modelCatalog` on `state_update`, so `model` is a key the agent already told us about
+/// rather than free text.
+///
 /// Start a new agent session in a project directory — the deck's "new task".
 ///
 /// `cwd` is required and absolute: the daemon runs with its own working directory and
@@ -73,11 +80,18 @@ struct ADPluginCommand: Codable, Equatable {
     var direction: ADDirection?
     var text: String?
     var mode: ADMode?
+    /// `set` applies `level` directly via `/effort <level>`, which is what Claude Code actually
+    /// offers; the picker-nudging actions predate that command and remain for surfaces still
+    /// driving the `/model` picker by keystroke.
     var action: ADAction?
     /// Optional epoch-ms lower bound; omit for the full retained history.
     var since: Double?
     /// CLI subcommand: `claude`, `codex`, `opencode`.
     var agent: String?
+    /// Required by `set`. One of low/medium/high/xhigh/max/auto.
+    var level: String?
+    /// Model key or alias accepted by `/model <name>`.
+    var model: String?
     var cwd: String?
     var command: ADCommand?
     /// Human-readable label for the surface (appears verbatim in diagnostics).
@@ -113,6 +127,8 @@ struct ADPluginCommand: Codable, Equatable {
         case action = "action"
         case since = "since"
         case agent = "agent"
+        case level = "level"
+        case model = "model"
         case cwd = "cwd"
         case command = "command"
         case clientLabel = "clientLabel"
@@ -165,6 +181,8 @@ extension ADPluginCommand {
         action: ADAction?? = nil,
         since: Double?? = nil,
         agent: String?? = nil,
+        level: String?? = nil,
+        model: String?? = nil,
         cwd: String?? = nil,
         command: ADCommand?? = nil,
         clientLabel: String?? = nil,
@@ -197,6 +215,8 @@ extension ADPluginCommand {
             action: action ?? self.action,
             since: since ?? self.since,
             agent: agent ?? self.agent,
+            level: level ?? self.level,
+            model: model ?? self.model,
             cwd: cwd ?? self.cwd,
             command: command ?? self.command,
             clientLabel: clientLabel ?? self.clientLabel,
@@ -229,7 +249,11 @@ extension ADPluginCommand {
     }
 }
 
+/// `set` applies `level` directly via `/effort <level>`, which is what Claude Code actually
+/// offers; the picker-nudging actions predate that command and remain for surfaces still
+/// driving the `/model` picker by keystroke.
 enum ADAction: String, Codable, Equatable {
+    case actionSet = "set"
     case adjustBrightness = "adjust_brightness"
     case adjustVolume = "adjust_volume"
     case analyze = "analyze"
@@ -402,6 +426,7 @@ enum ADType: String, Codable, Equatable {
     case sendPrompt = "send_prompt"
     case sessionCommand = "session_command"
     case setEffort = "set_effort"
+    case setModel = "set_model"
     case switchAgent = "switch_agent"
     case switchMode = "switch_mode"
     case utility = "utility"

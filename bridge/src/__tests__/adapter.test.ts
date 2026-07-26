@@ -952,3 +952,46 @@ describe('ClaudeCodeAdapter start lifecycle', () => {
     // which is tested via integration tests (cursor-sync, output-parser)
   });
 });
+
+describe('ClaudeCodeAdapter: /effort and /model', () => {
+  let adapter: ClaudeCodeAdapter;
+  let written: string[];
+
+  beforeEach(() => {
+    adapter = new ClaudeCodeAdapter();
+    written = [];
+    (adapter as any).ptyManager = { write: (s: string) => written.push(s) };
+  });
+
+  it('applies an effort level in one command', () => {
+    // The old path opened the /model picker and nudged it with arrow keys.
+    // Claude Code takes `/effort <level>` directly, so nothing has to be open.
+    expect(adapter.handleCommand({ type: 'set_effort', action: 'set', level: 'high' } as PluginCommand)).toBe(true);
+    expect(written).toEqual(['/effort high\r']);
+  });
+
+  it('closes a picker left open by the older nudge path first', () => {
+    adapter.handleCommand({ type: 'set_effort', action: 'increase' } as PluginCommand);
+    written.length = 0;
+    adapter.handleCommand({ type: 'set_effort', action: 'set', level: 'max' } as PluginCommand);
+    // Esc first: an open picker would otherwise swallow the typed line.
+    expect(written[0]).toBe('\x1b');
+    expect(written).toContain('/effort max\r');
+  });
+
+  it('sets a model by name', () => {
+    expect(adapter.handleCommand({ type: 'set_model', model: 'claude-opus-5' } as PluginCommand)).toBe(true);
+    expect(written).toEqual(['/model claude-opus-5\r']);
+  });
+
+  it('writes nothing for an argument that could carry its own newline', () => {
+    // These land in a live prompt: a newline would submit something the user
+    // never composed, so the command is dropped rather than sanitised.
+    for (const model of ['opus\rrm -rf /', 'a b', '', '/etc/passwd', 'x'.repeat(80)]) {
+      adapter.handleCommand({ type: 'set_model', model } as PluginCommand);
+    }
+    adapter.handleCommand({ type: 'set_effort', action: 'set', level: 'high\rwhoami' } as PluginCommand);
+    adapter.handleCommand({ type: 'set_effort', action: 'set' } as PluginCommand);
+    expect(written).toEqual([]);
+  });
+});

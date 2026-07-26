@@ -381,6 +381,9 @@
           "$ref": "#/definitions/SetEffortCommand"
         },
         {
+          "$ref": "#/definitions/SetModelCommand"
+        },
+        {
           "$ref": "#/definitions/NewSessionCommand"
         },
         {
@@ -561,12 +564,18 @@
       "description": "Drive the agent's reasoning-effort picker from an encoder.\n\nClaude Code exposes effort inside the `/model` UI, which is adjusted with ← / → and confirmed with Enter (the same UI `output-parser.ts` scrapes the level from). So this is a *relative* control, not an absolute one: the deck nudges the picker rather than naming a level, because the set of levels differs per model and the picker is the only place the mapping is known.\n\n`increase`/`decrease` open the picker first if it is not already open — the bridge tracks that, since it owns the PTY.",
       "properties": {
         "action": {
+          "description": "`set` applies `level` directly via `/effort <level>`, which is what Claude Code actually offers; the picker-nudging actions predate that command and remain for surfaces still driving the `/model` picker by keystroke.",
           "enum": [
             "increase",
             "decrease",
             "commit",
-            "cancel"
+            "cancel",
+            "set"
           ],
+          "type": "string"
+        },
+        "level": {
+          "description": "Required by `set`. One of low/medium/high/xhigh/max/auto.",
           "type": "string"
         },
         "sessionId": {
@@ -580,6 +589,28 @@
       "required": [
         "type",
         "action"
+      ],
+      "type": "object"
+    },
+    "SetModelCommand": {
+      "additionalProperties": false,
+      "description": "Switch the agent's model — `/model <name>` in Claude Code.\n\nDirect, unlike the keypad's MODEL key, which types `/model`, waits for the picker to render, and infers completion from the model name changing. The candidates come from `modelCatalog` on `state_update`, so `model` is a key the agent already told us about rather than free text.",
+      "properties": {
+        "model": {
+          "description": "Model key or alias accepted by `/model <name>`.",
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "set_model",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "model"
       ],
       "type": "object"
     },

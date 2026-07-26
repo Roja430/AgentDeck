@@ -110,12 +110,13 @@ sealed class AgentCommand {
         }
     }
 
-    data class QuerySessionTimeline(val sessionId: String) : AgentCommand() {
+    data class QuerySessionTimeline(val sessionId: String, val since: Int? = null) : AgentCommand() {
         override val typeTag: String = "query_session_timeline"
         override fun toJson(): String {
             val buf = StringBuilder()
             buf.append("{\"type\":\"query_session_timeline\"")
             buf.append(",\"sessionId\":").append(encode(sessionId))
+            if (since != null) buf.append(",\"since\":").append(encode(since))
             buf.append("}")
             return buf.toString()
         }
@@ -155,12 +156,25 @@ sealed class AgentCommand {
         }
     }
 
-    data class SetEffort(val action: String, val sessionId: String? = null) : AgentCommand() {
+    data class SetEffort(val action: String, val level: String? = null, val sessionId: String? = null) : AgentCommand() {
         override val typeTag: String = "set_effort"
         override fun toJson(): String {
             val buf = StringBuilder()
             buf.append("{\"type\":\"set_effort\"")
             buf.append(",\"action\":").append(encode(action))
+            if (level != null) buf.append(",\"level\":").append(encode(level))
+            if (sessionId != null) buf.append(",\"sessionId\":").append(encode(sessionId))
+            buf.append("}")
+            return buf.toString()
+        }
+    }
+
+    data class SetModel(val model: String, val sessionId: String? = null) : AgentCommand() {
+        override val typeTag: String = "set_model"
+        override fun toJson(): String {
+            val buf = StringBuilder()
+            buf.append("{\"type\":\"set_model\"")
+            buf.append(",\"model\":").append(encode(model))
             if (sessionId != null) buf.append(",\"sessionId\":").append(encode(sessionId))
             buf.append("}")
             return buf.toString()

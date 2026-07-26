@@ -92,10 +92,50 @@ export class ClaudeCodeAdapter extends PtyAdapter {
       return true;
     }
     if (cmd.type === 'set_effort') {
+      if (cmd.action === 'set') {
+        this.handleSetEffortLevel(cmd.level);
+        return true;
+      }
       this.handleSetEffort(cmd.action);
       return true;
     }
+    if (cmd.type === 'set_model') {
+      this.handleSetModel(cmd.model);
+      return true;
+    }
     return false;
+  }
+
+  /**
+   * Anything sent here is typed into a live prompt, so it must not be able to
+   * carry a newline (which would submit something we did not compose) or shell
+   * punctuation. Model keys and effort levels are both plain identifiers.
+   */
+  private static readonly SAFE_ARGUMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+  /** `/effort <level>` — direct, unlike the picker-nudging path below. */
+  private handleSetEffortLevel(level: string | undefined): void {
+    if (!level || !ClaudeCodeAdapter.SAFE_ARGUMENT.test(level)) {
+      debug('adapter:claude', `set_effort: rejected level ${JSON.stringify(level)}`);
+      return;
+    }
+    // A picker left open from the older nudge path would swallow this line.
+    if (this.effortPickerOpenedAt) {
+      this.ptyManager.write('\x1b');
+      this.effortPickerOpenedAt = 0;
+    }
+    debug('adapter:claude', `set_effort: /effort ${level}`);
+    this.ptyManager.write(`/effort ${level}\r`);
+  }
+
+  /** `/model <name>` — session-scoped, applied without opening the picker. */
+  private handleSetModel(model: string): void {
+    if (!model || !ClaudeCodeAdapter.SAFE_ARGUMENT.test(model)) {
+      debug('adapter:claude', `set_model: rejected ${JSON.stringify(model)}`);
+      return;
+    }
+    debug('adapter:claude', `set_model: /model ${model}`);
+    this.ptyManager.write(`/model ${model}\r`);
   }
 
   /**

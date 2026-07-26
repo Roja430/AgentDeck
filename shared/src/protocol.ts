@@ -786,7 +786,29 @@ export interface SwitchAgentCommand {
  */
 export interface SetEffortCommand {
   type: 'set_effort';
-  action: 'increase' | 'decrease' | 'commit' | 'cancel';
+  /**
+   * `set` applies `level` directly via `/effort <level>`, which is what Claude
+   * Code actually offers; the picker-nudging actions predate that command and
+   * remain for surfaces still driving the `/model` picker by keystroke.
+   */
+  action: 'increase' | 'decrease' | 'commit' | 'cancel' | 'set';
+  /** Required by `set`. One of low/medium/high/xhigh/max/auto. */
+  level?: string;
+  sessionId?: string;
+}
+
+/**
+ * Switch the agent's model — `/model <name>` in Claude Code.
+ *
+ * Direct, unlike the keypad's MODEL key, which types `/model`, waits for the
+ * picker to render, and infers completion from the model name changing. The
+ * candidates come from `modelCatalog` on `state_update`, so `model` is a key
+ * the agent already told us about rather than free text.
+ */
+export interface SetModelCommand {
+  type: 'set_model';
+  /** Model key or alias accepted by `/model <name>`. */
+  model: string;
   sessionId?: string;
 }
 
@@ -929,6 +951,7 @@ export type PluginCommand =
   | UtilityCommand
   | SwitchAgentCommand
   | SetEffortCommand
+  | SetModelCommand
   | NewSessionCommand
   | ForkSessionCommand
   | FocusSessionCommand

@@ -39,6 +39,13 @@ private val klaxon = Klaxon()
  * `increase`/`decrease` open the picker first if it is not already open — the bridge tracks
  * that, since it owns the PTY.
  *
+ * Switch the agent's model — `/model <name>` in Claude Code.
+ *
+ * Direct, unlike the keypad's MODEL key, which types `/model`, waits for the picker to
+ * render, and infers completion from the model name changing. The candidates come from
+ * `modelCatalog` on `state_update`, so `model` is a key the agent already told us about
+ * rather than free text.
+ *
  * Start a new agent session in a project directory — the deck's "new task".
  *
  * `cwd` is required and absolute: the daemon runs with its own working directory and
@@ -91,6 +98,12 @@ data class PluginCommand (
     val direction: Direction? = null,
     val text: String? = null,
     val mode: Mode? = null,
+
+    /**
+     * `set` applies `level` directly via `/effort <level>`, which is what Claude Code actually
+     * offers; the picker-nudging actions predate that command and remain for surfaces still
+     * driving the `/model` picker by keystroke.
+     */
     val action: Action? = null,
 
     /**
@@ -102,6 +115,16 @@ data class PluginCommand (
      * CLI subcommand: `claude`, `codex`, `opencode`.
      */
     val agent: String? = null,
+
+    /**
+     * Required by `set`. One of low/medium/high/xhigh/max/auto.
+     */
+    val level: String? = null,
+
+    /**
+     * Model key or alias accepted by `/model <name>`.
+     */
+    val model: String? = null,
 
     val cwd: String? = null,
     val command: Command? = null,
@@ -156,6 +179,11 @@ data class PluginCommand (
     }
 }
 
+/**
+ * `set` applies `level` directly via `/effort <level>`, which is what Claude Code actually
+ * offers; the picker-nudging actions predate that command and remain for surfaces still
+ * driving the `/model` picker by keystroke.
+ */
 enum class Action(val value: String) {
     AdjustBrightness("adjust_brightness"),
     AdjustVolume("adjust_volume"),
@@ -168,6 +196,7 @@ enum class Action(val value: String) {
     MediaNext("media_next"),
     MediaPlayPause("media_play_pause"),
     MediaPrev("media_prev"),
+    Set("set"),
     Start("start"),
     Stop("stop"),
     ToggleMute("toggle_mute");
@@ -185,6 +214,7 @@ enum class Action(val value: String) {
             "media_next"        -> MediaNext
             "media_play_pause"  -> MediaPlayPause
             "media_prev"        -> MediaPrev
+            "set"               -> Set
             "start"             -> Start
             "stop"              -> Stop
             "toggle_mute"       -> ToggleMute
@@ -274,6 +304,7 @@ enum class Type(val value: String) {
     SendPrompt("send_prompt"),
     SessionCommand("session_command"),
     SetEffort("set_effort"),
+    SetModel("set_model"),
     SwitchAgent("switch_agent"),
     SwitchMode("switch_mode"),
     Utility("utility"),
@@ -303,6 +334,7 @@ enum class Type(val value: String) {
             "send_prompt"            -> SendPrompt
             "session_command"        -> SessionCommand
             "set_effort"             -> SetEffort
+            "set_model"              -> SetModel
             "switch_agent"           -> SwitchAgent
             "switch_mode"            -> SwitchMode
             "utility"                -> Utility

@@ -17,11 +17,12 @@ public enum AgentCommand: Equatable {
     case escape
     case voice(action: String)
     case queryUsage
-    case querySessionTimeline(sessionId: String)
+    case querySessionTimeline(sessionId: String, since: Int?)
     case diag(action: String)
     case utility(action: String, value: Int?)
     case switchAgent(agent: String)
-    case setEffort(action: String, sessionId: String?)
+    case setEffort(action: String, level: String?, sessionId: String?)
+    case setModel(model: String, sessionId: String?)
     case newSession(agent: String, cwd: String)
     case forkSession(sessionId: String)
     case focusSession(sessionId: String)
@@ -69,9 +70,10 @@ public enum AgentCommand: Equatable {
             return dict
         case .queryUsage:
             return ["type": "query_usage"]
-        case .querySessionTimeline(let sessionId):
+        case .querySessionTimeline(let sessionId, let since):
             var dict: [String: Any] = ["type": "query_session_timeline"]
             dict["sessionId"] = sessionId
+            if let since = since { dict["since"] = since }
             return dict
         case .diag(let action):
             var dict: [String: Any] = ["type": "diag"]
@@ -86,9 +88,15 @@ public enum AgentCommand: Equatable {
             var dict: [String: Any] = ["type": "switch_agent"]
             dict["agent"] = agent
             return dict
-        case .setEffort(let action, let sessionId):
+        case .setEffort(let action, let level, let sessionId):
             var dict: [String: Any] = ["type": "set_effort"]
             dict["action"] = action
+            if let level = level { dict["level"] = level }
+            if let sessionId = sessionId { dict["sessionId"] = sessionId }
+            return dict
+        case .setModel(let model, let sessionId):
+            var dict: [String: Any] = ["type": "set_model"]
+            dict["model"] = model
             if let sessionId = sessionId { dict["sessionId"] = sessionId }
             return dict
         case .newSession(let agent, let cwd):
@@ -173,6 +181,7 @@ public enum AgentCommand: Equatable {
         case .utility: return "utility"
         case .switchAgent: return "switch_agent"
         case .setEffort: return "set_effort"
+        case .setModel: return "set_model"
         case .newSession: return "new_session"
         case .forkSession: return "fork_session"
         case .focusSession: return "focus_session"
