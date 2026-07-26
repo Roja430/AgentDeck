@@ -1019,6 +1019,28 @@
       ],
       "type": "object"
     },
+    "RecentProject": {
+      "additionalProperties": false,
+      "description": "A directory an agent has recently worked in, offered as a launch target.",
+      "properties": {
+        "lastActiveAt": {
+          "type": "number"
+        },
+        "name": {
+          "description": "Trailing folder name, for display.",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "name",
+        "lastActiveAt"
+      ],
+      "type": "object"
+    },
     "ReviewResultEvent": {
       "additionalProperties": false,
       "properties": {
@@ -1222,6 +1244,13 @@
     "SessionsListEvent": {
       "additionalProperties": false,
       "properties": {
+        "recentProjects": {
+          "description": "Directories an agent has recently worked in, newest first — the launch targets for `new_session`. Rides this event because it answers the same question the session list does: what can I work on right now.",
+          "items": {
+            "$ref": "#/definitions/RecentProject"
+          },
+          "type": "array"
+        },
         "sessions": {
           "items": {
             "$ref": "#/definitions/SessionInfo"
@@ -1606,6 +1635,113 @@
       ],
       "type": "object"
     },
+    "TranscriptCostBucket": {
+      "additionalProperties": false,
+      "description": "Token counts and priced cost for one time bucket of local transcript history.",
+      "properties": {
+        "cacheCreationTokens": {
+          "type": "number"
+        },
+        "cacheReadTokens": {
+          "type": "number"
+        },
+        "calls": {
+          "type": "number"
+        },
+        "costUsd": {
+          "type": "number"
+        },
+        "inputTokens": {
+          "type": "number"
+        },
+        "outputTokens": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "calls",
+        "inputTokens",
+        "outputTokens",
+        "cacheCreationTokens",
+        "cacheReadTokens",
+        "costUsd"
+      ],
+      "type": "object"
+    },
+    "TranscriptCostModel": {
+      "additionalProperties": false,
+      "properties": {
+        "costUsd": {
+          "type": "number"
+        },
+        "model": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "costUsd"
+      ],
+      "type": "object"
+    },
+    "TranscriptCostSummary": {
+      "additionalProperties": false,
+      "description": "Cost derived locally from Claude Code transcripts, at API list prices.\n\nComplements — never replaces — the 5h/7d quota fields above: those say how much of the subscription window is spent, this says what the same work would cost on the API. Subscription users have no dollar figure otherwise. Estimate only: list prices, no contract or volume discounts.",
+      "properties": {
+        "budgetState": {
+          "description": "Today's spend against that budget. Absent when no budget is configured.",
+          "enum": [
+            "ok",
+            "warn",
+            "over"
+          ],
+          "type": "string"
+        },
+        "byModel": {
+          "description": "Highest cost first, 30-day window.",
+          "items": {
+            "$ref": "#/definitions/TranscriptCostModel"
+          },
+          "type": "array"
+        },
+        "cacheHitRatio": {
+          "description": "Cache-read share of all input tokens over the 30-day window, 0–1.",
+          "type": "number"
+        },
+        "dailyBudgetUsd": {
+          "description": "Daily budget from settings, when the user has set one.",
+          "type": "number"
+        },
+        "last30Days": {
+          "$ref": "#/definitions/TranscriptCostBucket"
+        },
+        "last7Days": {
+          "$ref": "#/definitions/TranscriptCostBucket"
+        },
+        "scannedAt": {
+          "description": "Epoch ms of the scan that produced this summary.",
+          "type": "number"
+        },
+        "today": {
+          "$ref": "#/definitions/TranscriptCostBucket"
+        },
+        "unpricedModels": {
+          "description": "Models with no pricing entry. Non-empty means costUsd is an undercount.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "today",
+        "last7Days",
+        "last30Days",
+        "byModel",
+        "scannedAt"
+      ],
+      "type": "object"
+    },
     "UsageEvent": {
       "additionalProperties": false,
       "properties": {
@@ -1719,6 +1855,9 @@
         },
         "toolCalls": {
           "type": "number"
+        },
+        "transcriptCost": {
+          "$ref": "#/definitions/TranscriptCostSummary"
         },
         "type": {
           "const": "usage_update",

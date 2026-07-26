@@ -268,6 +268,29 @@
       ],
       "type": "object"
     },
+    "NewSessionCommand": {
+      "additionalProperties": false,
+      "description": "Start a new agent session in a project directory — the deck's \"new task\".\n\n`cwd` is required and absolute: the daemon runs with its own working directory and inheriting it would start every session in the wrong place. Candidates come from `recentProjects` on `sessions_list`.",
+      "properties": {
+        "agent": {
+          "description": "CLI subcommand: `claude`, `codex`, `opencode`.",
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "type": {
+          "const": "new_session",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "agent",
+        "cwd"
+      ],
+      "type": "object"
+    },
     "PermissionDecisionCommand": {
       "additionalProperties": false,
       "description": "Device approval decision for a gated PreToolUse permission request (observed sessions). The daemon holds the hook's HTTP response open keyed by `requestId`; this command resolves it into a Claude Code permission decision. See bridge/src/permission-resolver.ts.",
@@ -334,6 +357,12 @@
         },
         {
           "$ref": "#/definitions/SwitchAgentCommand"
+        },
+        {
+          "$ref": "#/definitions/SetEffortCommand"
+        },
+        {
+          "$ref": "#/definitions/NewSessionCommand"
         },
         {
           "$ref": "#/definitions/FocusSessionCommand"
@@ -502,6 +531,33 @@
         "type",
         "sessionId",
         "command"
+      ],
+      "type": "object"
+    },
+    "SetEffortCommand": {
+      "additionalProperties": false,
+      "description": "Drive the agent's reasoning-effort picker from an encoder.\n\nClaude Code exposes effort inside the `/model` UI, which is adjusted with ← / → and confirmed with Enter (the same UI `output-parser.ts` scrapes the level from). So this is a *relative* control, not an absolute one: the deck nudges the picker rather than naming a level, because the set of levels differs per model and the picker is the only place the mapping is known.\n\n`increase`/`decrease` open the picker first if it is not already open — the bridge tracks that, since it owns the PTY.",
+      "properties": {
+        "action": {
+          "enum": [
+            "increase",
+            "decrease",
+            "commit",
+            "cancel"
+          ],
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "set_effort",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "action"
       ],
       "type": "object"
     },

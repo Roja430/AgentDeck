@@ -234,6 +234,47 @@ export interface PromptOptionsEvent {
   options: PromptOption[];
 }
 
+/** Token counts and priced cost for one time bucket of local transcript history. */
+export interface TranscriptCostBucket {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+}
+
+export interface TranscriptCostModel {
+  model: string;
+  costUsd: number;
+}
+
+/**
+ * Cost derived locally from Claude Code transcripts, at API list prices.
+ *
+ * Complements — never replaces — the 5h/7d quota fields above: those say how
+ * much of the subscription window is spent, this says what the same work would
+ * cost on the API. Subscription users have no dollar figure otherwise.
+ * Estimate only: list prices, no contract or volume discounts.
+ */
+export interface TranscriptCostSummary {
+  today: TranscriptCostBucket;
+  last7Days: TranscriptCostBucket;
+  last30Days: TranscriptCostBucket;
+  /** Cache-read share of all input tokens over the 30-day window, 0–1. */
+  cacheHitRatio?: number;
+  /** Highest cost first, 30-day window. */
+  byModel: TranscriptCostModel[];
+  /** Models with no pricing entry. Non-empty means costUsd is an undercount. */
+  unpricedModels?: string[];
+  /** Daily budget from settings, when the user has set one. */
+  dailyBudgetUsd?: number;
+  /** Today's spend against that budget. Absent when no budget is configured. */
+  budgetState?: 'ok' | 'warn' | 'over';
+  /** Epoch ms of the scan that produced this summary. */
+  scannedAt: number;
+}
+
 export interface UsageEvent {
   type: 'usage_update';
   sessionDurationSec: number;
@@ -274,6 +315,8 @@ export interface UsageEvent {
   codexLastRefreshAt?: string;
   // Codex usage limits (5h/7d-style) parsed from local rollout files
   codexRateLimits?: CodexRateLimits;
+  // Locally-derived dollar cost from Claude Code transcripts (list prices)
+  transcriptCost?: TranscriptCostSummary;
   // Local model/runtime summaries
   modelCatalog?: ModelCatalogEntry[];
   mlxModels?: string[];
@@ -409,6 +452,12 @@ export interface SessionInfo {
 export interface SessionsListEvent {
   type: 'sessions_list';
   sessions: SessionInfo[];
+  /**
+   * Directories an agent has recently worked in, newest first — the launch
+   * targets for `new_session`. Rides this event because it answers the same
+   * question the session list does: what can I work on right now.
+   */
+  recentProjects?: RecentProject[];
 }
 
 export interface TimelineEventMsg {
@@ -723,6 +772,46 @@ export interface SwitchAgentCommand {
   agent: 'openclaw' | 'claude-code';
 }
 
+/**
+ * Drive the agent's reasoning-effort picker from an encoder.
+ *
+ * Claude Code exposes effort inside the `/model` UI, which is adjusted with
+ * ← / → and confirmed with Enter (the same UI `output-parser.ts` scrapes the
+ * level from). So this is a *relative* control, not an absolute one: the deck
+ * nudges the picker rather than naming a level, because the set of levels
+ * differs per model and the picker is the only place the mapping is known.
+ *
+ * `increase`/`decrease` open the picker first if it is not already open — the
+ * bridge tracks that, since it owns the PTY.
+ */
+export interface SetEffortCommand {
+  type: 'set_effort';
+  action: 'increase' | 'decrease' | 'commit' | 'cancel';
+  sessionId?: string;
+}
+
+/**
+ * Start a new agent session in a project directory — the deck's "new task".
+ *
+ * `cwd` is required and absolute: the daemon runs with its own working
+ * directory and inheriting it would start every session in the wrong place.
+ * Candidates come from `recentProjects` on `sessions_list`.
+ */
+export interface NewSessionCommand {
+  type: 'new_session';
+  /** CLI subcommand: `claude`, `codex`, `opencode`. */
+  agent: string;
+  cwd: string;
+}
+
+/** A directory an agent has recently worked in, offered as a launch target. */
+export interface RecentProject {
+  path: string;
+  /** Trailing folder name, for display. */
+  name: string;
+  lastActiveAt: number;
+}
+
 export interface FocusSessionCommand {
   type: 'focus_session';
   sessionId: string;
@@ -824,6 +913,8 @@ export type PluginCommand =
   | DiagCommand
   | UtilityCommand
   | SwitchAgentCommand
+  | SetEffortCommand
+  | NewSessionCommand
   | FocusSessionCommand
   | ClearSessionFocusCommand
   | SessionCommand

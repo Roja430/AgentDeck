@@ -119,6 +119,7 @@ struct ADBridgeEvent: Codable, Equatable {
     var sevenDayResetsAt: String?
     var tokenStatus: ADTokenStatus?
     var toolCalls: Double?
+    var transcriptCost: ADTranscriptCostSummary?
     var usageStale: Bool?
     var status: ADBridgeEventStatus?
     /// Transcribed user speech
@@ -131,6 +132,10 @@ struct ADBridgeEvent: Codable, Equatable {
     /// How to dim on sleep. Absent ⇒ legacy full-off.
     var dim: ADDisplayDimInstruction?
     var displayOn: Bool?
+    /// Directories an agent has recently worked in, newest first — the launch targets for
+    /// `new_session`. Rides this event because it answers the same question the session list
+    /// does: what can I work on right now.
+    var recentProjects: [ADRecentProject]?
     var sessions: [ADSessionInfo]?
     var encoders: [ADEncoderSlotState]?
     var takeoverActive: Bool?
@@ -223,6 +228,7 @@ struct ADBridgeEvent: Codable, Equatable {
         case sevenDayResetsAt = "sevenDayResetsAt"
         case tokenStatus = "tokenStatus"
         case toolCalls = "toolCalls"
+        case transcriptCost = "transcriptCost"
         case usageStale = "usageStale"
         case status = "status"
         case text = "text"
@@ -232,6 +238,7 @@ struct ADBridgeEvent: Codable, Equatable {
         case timestamp = "timestamp"
         case dim = "dim"
         case displayOn = "displayOn"
+        case recentProjects = "recentProjects"
         case sessions = "sessions"
         case encoders = "encoders"
         case takeoverActive = "takeoverActive"
@@ -343,6 +350,7 @@ extension ADBridgeEvent {
         sevenDayResetsAt: String?? = nil,
         tokenStatus: ADTokenStatus?? = nil,
         toolCalls: Double?? = nil,
+        transcriptCost: ADTranscriptCostSummary?? = nil,
         usageStale: Bool?? = nil,
         status: ADBridgeEventStatus?? = nil,
         text: String?? = nil,
@@ -352,6 +360,7 @@ extension ADBridgeEvent {
         timestamp: Double?? = nil,
         dim: ADDisplayDimInstruction?? = nil,
         displayOn: Bool?? = nil,
+        recentProjects: [ADRecentProject]?? = nil,
         sessions: [ADSessionInfo]?? = nil,
         encoders: [ADEncoderSlotState]?? = nil,
         takeoverActive: Bool?? = nil,
@@ -443,6 +452,7 @@ extension ADBridgeEvent {
             sevenDayResetsAt: sevenDayResetsAt ?? self.sevenDayResetsAt,
             tokenStatus: tokenStatus ?? self.tokenStatus,
             toolCalls: toolCalls ?? self.toolCalls,
+            transcriptCost: transcriptCost ?? self.transcriptCost,
             usageStale: usageStale ?? self.usageStale,
             status: status ?? self.status,
             text: text ?? self.text,
@@ -452,6 +462,7 @@ extension ADBridgeEvent {
             timestamp: timestamp ?? self.timestamp,
             dim: dim ?? self.dim,
             displayOn: displayOn ?? self.displayOn,
+            recentProjects: recentProjects ?? self.recentProjects,
             sessions: sessions ?? self.sessions,
             encoders: encoders ?? self.encoders,
             takeoverActive: takeoverActive ?? self.takeoverActive,
@@ -1718,6 +1729,66 @@ enum ADPromptType: String, Codable, Equatable {
     case yesNoAlways = "yes_no_always"
 }
 
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+/// A directory an agent has recently worked in, offered as a launch target.
+// MARK: - ADRecentProject
+struct ADRecentProject: Codable, Equatable {
+    var lastActiveAt: Double
+    /// Trailing folder name, for display.
+    var name: String
+    var path: String
+
+    enum CodingKeys: String, CodingKey {
+        case lastActiveAt = "lastActiveAt"
+        case name = "name"
+        case path = "path"
+    }
+}
+
+// MARK: ADRecentProject convenience initializers and mutators
+
+extension ADRecentProject {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ADRecentProject.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        lastActiveAt: Double? = nil,
+        name: String? = nil,
+        path: String? = nil
+    ) -> ADRecentProject {
+        return ADRecentProject(
+            lastActiveAt: lastActiveAt ?? self.lastActiveAt,
+            name: name ?? self.name,
+            path: path ?? self.path
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
 /// Last review verdict (with reviewFindings) — devices render "risk: low · 2" on the REVIEW
 /// tile.
 enum ADRisk: String, Codable, Equatable {
@@ -2343,6 +2414,232 @@ enum ADTokenStatus: String, Codable, Equatable {
     case missing = "missing"
     case unknown = "unknown"
     case valid = "valid"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+/// Cost derived locally from Claude Code transcripts, at API list prices.
+///
+/// Complements — never replaces — the 5h/7d quota fields above: those say how much of the
+/// subscription window is spent, this says what the same work would cost on the API.
+/// Subscription users have no dollar figure otherwise. Estimate only: list prices, no
+/// contract or volume discounts.
+// MARK: - ADTranscriptCostSummary
+struct ADTranscriptCostSummary: Codable, Equatable {
+    /// Today's spend against that budget. Absent when no budget is configured.
+    var budgetState: ADBudgetState?
+    /// Highest cost first, 30-day window.
+    var byModel: [ADTranscriptCostModel]
+    /// Cache-read share of all input tokens over the 30-day window, 0–1.
+    var cacheHitRatio: Double?
+    /// Daily budget from settings, when the user has set one.
+    var dailyBudgetUsd: Double?
+    var last30Days: ADTranscriptCostBucket
+    var last7Days: ADTranscriptCostBucket
+    /// Epoch ms of the scan that produced this summary.
+    var scannedAt: Double
+    var today: ADTranscriptCostBucket
+    /// Models with no pricing entry. Non-empty means costUsd is an undercount.
+    var unpricedModels: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case budgetState = "budgetState"
+        case byModel = "byModel"
+        case cacheHitRatio = "cacheHitRatio"
+        case dailyBudgetUsd = "dailyBudgetUsd"
+        case last30Days = "last30Days"
+        case last7Days = "last7Days"
+        case scannedAt = "scannedAt"
+        case today = "today"
+        case unpricedModels = "unpricedModels"
+    }
+}
+
+// MARK: ADTranscriptCostSummary convenience initializers and mutators
+
+extension ADTranscriptCostSummary {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ADTranscriptCostSummary.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        budgetState: ADBudgetState?? = nil,
+        byModel: [ADTranscriptCostModel]? = nil,
+        cacheHitRatio: Double?? = nil,
+        dailyBudgetUsd: Double?? = nil,
+        last30Days: ADTranscriptCostBucket? = nil,
+        last7Days: ADTranscriptCostBucket? = nil,
+        scannedAt: Double? = nil,
+        today: ADTranscriptCostBucket? = nil,
+        unpricedModels: [String]?? = nil
+    ) -> ADTranscriptCostSummary {
+        return ADTranscriptCostSummary(
+            budgetState: budgetState ?? self.budgetState,
+            byModel: byModel ?? self.byModel,
+            cacheHitRatio: cacheHitRatio ?? self.cacheHitRatio,
+            dailyBudgetUsd: dailyBudgetUsd ?? self.dailyBudgetUsd,
+            last30Days: last30Days ?? self.last30Days,
+            last7Days: last7Days ?? self.last7Days,
+            scannedAt: scannedAt ?? self.scannedAt,
+            today: today ?? self.today,
+            unpricedModels: unpricedModels ?? self.unpricedModels
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+/// Today's spend against that budget. Absent when no budget is configured.
+enum ADBudgetState: String, Codable, Equatable {
+    case ok = "ok"
+    case over = "over"
+    case warn = "warn"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - ADTranscriptCostModel
+struct ADTranscriptCostModel: Codable, Equatable {
+    var costUsd: Double
+    var model: String
+
+    enum CodingKeys: String, CodingKey {
+        case costUsd = "costUsd"
+        case model = "model"
+    }
+}
+
+// MARK: ADTranscriptCostModel convenience initializers and mutators
+
+extension ADTranscriptCostModel {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ADTranscriptCostModel.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        costUsd: Double? = nil,
+        model: String? = nil
+    ) -> ADTranscriptCostModel {
+        return ADTranscriptCostModel(
+            costUsd: costUsd ?? self.costUsd,
+            model: model ?? self.model
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+/// Token counts and priced cost for one time bucket of local transcript history.
+// MARK: - ADTranscriptCostBucket
+struct ADTranscriptCostBucket: Codable, Equatable {
+    var cacheCreationTokens: Double
+    var cacheReadTokens: Double
+    var calls: Double
+    var costUsd: Double
+    var inputTokens: Double
+    var outputTokens: Double
+
+    enum CodingKeys: String, CodingKey {
+        case cacheCreationTokens = "cacheCreationTokens"
+        case cacheReadTokens = "cacheReadTokens"
+        case calls = "calls"
+        case costUsd = "costUsd"
+        case inputTokens = "inputTokens"
+        case outputTokens = "outputTokens"
+    }
+}
+
+// MARK: ADTranscriptCostBucket convenience initializers and mutators
+
+extension ADTranscriptCostBucket {
+    init(data: Data) throws {
+        self = try newJSONDecoder().decode(ADTranscriptCostBucket.self, from: data)
+    }
+
+    init(_ json: String, using encoding: String.Encoding = .utf8) throws {
+        guard let data = json.data(using: encoding) else {
+            throw NSError(domain: "JSONDecoding", code: 0, userInfo: nil)
+        }
+        try self.init(data: data)
+    }
+
+    init(fromURL url: URL) throws {
+        try self.init(data: try Data(contentsOf: url))
+    }
+
+    func with(
+        cacheCreationTokens: Double? = nil,
+        cacheReadTokens: Double? = nil,
+        calls: Double? = nil,
+        costUsd: Double? = nil,
+        inputTokens: Double? = nil,
+        outputTokens: Double? = nil
+    ) -> ADTranscriptCostBucket {
+        return ADTranscriptCostBucket(
+            cacheCreationTokens: cacheCreationTokens ?? self.cacheCreationTokens,
+            cacheReadTokens: cacheReadTokens ?? self.cacheReadTokens,
+            calls: calls ?? self.calls,
+            costUsd: costUsd ?? self.costUsd,
+            inputTokens: inputTokens ?? self.inputTokens,
+            outputTokens: outputTokens ?? self.outputTokens
+        )
+    }
+
+    func jsonData() throws -> Data {
+        return try newJSONEncoder().encode(self)
+    }
+
+    func jsonString(encoding: String.Encoding = .utf8) throws -> String? {
+        return String(data: try self.jsonData(), encoding: encoding)
+    }
 }
 
 enum ADType: String, Codable, Equatable {

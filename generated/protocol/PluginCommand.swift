@@ -15,6 +15,23 @@ import Foundation
 /// `timeline_history` carrying that session's entries. Lets a device that connects
 /// mid-session fill its per-session Detail view.
 ///
+/// Drive the agent's reasoning-effort picker from an encoder.
+///
+/// Claude Code exposes effort inside the `/model` UI, which is adjusted with ← / → and
+/// confirmed with Enter (the same UI `output-parser.ts` scrapes the level from). So this is
+/// a *relative* control, not an absolute one: the deck nudges the picker rather than naming
+/// a level, because the set of levels differs per model and the picker is the only place the
+/// mapping is known.
+///
+/// `increase`/`decrease` open the picker first if it is not already open — the bridge tracks
+/// that, since it owns the PTY.
+///
+/// Start a new agent session in a project directory — the deck's "new task".
+///
+/// `cwd` is required and absolute: the daemon runs with its own working directory and
+/// inheriting it would start every session in the wrong place. Candidates come from
+/// `recentProjects` on `sessions_list`.
+///
 /// Session-scoped command — daemon forwards the inner command to the specified session's
 /// bridge. Enables direct control of a specific session from any client (MenuBarExtra,
 /// Dashboard, etc.)
@@ -50,7 +67,9 @@ struct ADPluginCommand: Codable, Equatable {
     var action: ADAction?
     /// Optional epoch-ms lower bound; omit for the full retained history.
     var since: Double?
-    var agent: ADAgent?
+    /// CLI subcommand: `claude`, `codex`, `opencode`.
+    var agent: String?
+    var cwd: String?
     var command: ADCommand?
     /// Human-readable label for the surface (appears verbatim in diagnostics).
     var clientLabel: String?
@@ -85,6 +104,7 @@ struct ADPluginCommand: Codable, Equatable {
         case action = "action"
         case since = "since"
         case agent = "agent"
+        case cwd = "cwd"
         case command = "command"
         case clientLabel = "clientLabel"
         case clientType = "clientType"
@@ -135,7 +155,8 @@ extension ADPluginCommand {
         mode: ADMode?? = nil,
         action: ADAction?? = nil,
         since: Double?? = nil,
-        agent: ADAgent?? = nil,
+        agent: String?? = nil,
+        cwd: String?? = nil,
         command: ADCommand?? = nil,
         clientLabel: String?? = nil,
         clientType: String?? = nil,
@@ -167,6 +188,7 @@ extension ADPluginCommand {
             action: action ?? self.action,
             since: since ?? self.since,
             agent: agent ?? self.agent,
+            cwd: cwd ?? self.cwd,
             command: command ?? self.command,
             clientLabel: clientLabel ?? self.clientLabel,
             clientType: clientType ?? self.clientType,
@@ -203,18 +225,16 @@ enum ADAction: String, Codable, Equatable {
     case adjustVolume = "adjust_volume"
     case analyze = "analyze"
     case cancel = "cancel"
+    case commit = "commit"
+    case decrease = "decrease"
     case dump = "dump"
+    case increase = "increase"
     case mediaNext = "media_next"
     case mediaPlayPause = "media_play_pause"
     case mediaPrev = "media_prev"
     case start = "start"
     case stop = "stop"
     case toggleMute = "toggle_mute"
-}
-
-enum ADAgent: String, Codable, Equatable {
-    case claudeCode = "claude-code"
-    case openclaw = "openclaw"
 }
 
 //
@@ -362,6 +382,7 @@ enum ADType: String, Codable, Equatable {
     case focusSession = "focus_session"
     case interrupt = "interrupt"
     case navigateOption = "navigate_option"
+    case newSession = "new_session"
     case permissionDecision = "permission_decision"
     case querySessionTimeline = "query_session_timeline"
     case queryUsage = "query_usage"
@@ -370,6 +391,7 @@ enum ADType: String, Codable, Equatable {
     case selectOption = "select_option"
     case sendPrompt = "send_prompt"
     case sessionCommand = "session_command"
+    case setEffort = "set_effort"
     case switchAgent = "switch_agent"
     case switchMode = "switch_mode"
     case utility = "utility"

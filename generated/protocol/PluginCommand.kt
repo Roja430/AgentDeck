@@ -16,7 +16,6 @@ private fun <T> Klaxon.convert(k: kotlin.reflect.KClass<*>, fromJson: (JsonValue
 
 private val klaxon = Klaxon()
     .convert(Action::class,    { Action.fromValue(it.string!!) },    { "\"${it.value}\"" })
-    .convert(Agent::class,     { Agent.fromValue(it.string!!) },     { "\"${it.value}\"" })
     .convert(Decision::class,  { Decision.fromValue(it.string!!) },  { "\"${it.value}\"" })
     .convert(Direction::class, { Direction.fromValue(it.string!!) }, { "\"${it.value}\"" })
     .convert(Mode::class,      { Mode.fromValue(it.string!!) },      { "\"${it.value}\"" })
@@ -28,6 +27,23 @@ private val klaxon = Klaxon()
  * Request a session's recent timeline. The daemon replies (to the requester only) with a
  * `timeline_history` carrying that session's entries. Lets a device that connects
  * mid-session fill its per-session Detail view.
+ *
+ * Drive the agent's reasoning-effort picker from an encoder.
+ *
+ * Claude Code exposes effort inside the `/model` UI, which is adjusted with ← / → and
+ * confirmed with Enter (the same UI `output-parser.ts` scrapes the level from). So this is
+ * a *relative* control, not an absolute one: the deck nudges the picker rather than naming
+ * a level, because the set of levels differs per model and the picker is the only place the
+ * mapping is known.
+ *
+ * `increase`/`decrease` open the picker first if it is not already open — the bridge tracks
+ * that, since it owns the PTY.
+ *
+ * Start a new agent session in a project directory — the deck's "new task".
+ *
+ * `cwd` is required and absolute: the daemon runs with its own working directory and
+ * inheriting it would start every session in the wrong place. Candidates come from
+ * `recentProjects` on `sessions_list`.
  *
  * Session-scoped command — daemon forwards the inner command to the specified session's
  * bridge. Enables direct control of a specific session from any client (MenuBarExtra,
@@ -71,7 +87,12 @@ data class PluginCommand (
      */
     val since: Double? = null,
 
-    val agent: Agent? = null,
+    /**
+     * CLI subcommand: `claude`, `codex`, `opencode`.
+     */
+    val agent: String? = null,
+
+    val cwd: String? = null,
     val command: Command? = null,
 
     /**
@@ -129,7 +150,10 @@ enum class Action(val value: String) {
     AdjustVolume("adjust_volume"),
     Analyze("analyze"),
     Cancel("cancel"),
+    Commit("commit"),
+    Decrease("decrease"),
     Dump("dump"),
+    Increase("increase"),
     MediaNext("media_next"),
     MediaPlayPause("media_play_pause"),
     MediaPrev("media_prev"),
@@ -143,7 +167,10 @@ enum class Action(val value: String) {
             "adjust_volume"     -> AdjustVolume
             "analyze"           -> Analyze
             "cancel"            -> Cancel
+            "commit"            -> Commit
+            "decrease"          -> Decrease
             "dump"              -> Dump
+            "increase"          -> Increase
             "media_next"        -> MediaNext
             "media_play_pause"  -> MediaPlayPause
             "media_prev"        -> MediaPrev
@@ -151,19 +178,6 @@ enum class Action(val value: String) {
             "stop"              -> Stop
             "toggle_mute"       -> ToggleMute
             else                -> throw IllegalArgumentException()
-        }
-    }
-}
-
-enum class Agent(val value: String) {
-    ClaudeCode("claude-code"),
-    Openclaw("openclaw");
-
-    companion object {
-        public fun fromValue(value: String): Agent = when (value) {
-            "claude-code" -> ClaudeCode
-            "openclaw"    -> Openclaw
-            else          -> throw IllegalArgumentException()
         }
     }
 }
@@ -238,6 +252,7 @@ enum class Type(val value: String) {
     FocusSession("focus_session"),
     Interrupt("interrupt"),
     NavigateOption("navigate_option"),
+    NewSession("new_session"),
     PermissionDecision("permission_decision"),
     QuerySessionTimeline("query_session_timeline"),
     QueryUsage("query_usage"),
@@ -246,6 +261,7 @@ enum class Type(val value: String) {
     SelectOption("select_option"),
     SendPrompt("send_prompt"),
     SessionCommand("session_command"),
+    SetEffort("set_effort"),
     SwitchAgent("switch_agent"),
     SwitchMode("switch_mode"),
     Utility("utility"),
@@ -264,6 +280,7 @@ enum class Type(val value: String) {
             "focus_session"          -> FocusSession
             "interrupt"              -> Interrupt
             "navigate_option"        -> NavigateOption
+            "new_session"            -> NewSession
             "permission_decision"    -> PermissionDecision
             "query_session_timeline" -> QuerySessionTimeline
             "query_usage"            -> QueryUsage
@@ -272,6 +289,7 @@ enum class Type(val value: String) {
             "select_option"          -> SelectOption
             "send_prompt"            -> SendPrompt
             "session_command"        -> SessionCommand
+            "set_effort"             -> SetEffort
             "switch_agent"           -> SwitchAgent
             "switch_mode"            -> SwitchMode
             "utility"                -> Utility

@@ -19,6 +19,8 @@ import type {
   DiagCommand,
   UtilityCommand,
   SwitchAgentCommand,
+  SetEffortCommand,
+  NewSessionCommand,
   FocusSessionCommand,
   ClearSessionFocusCommand,
   SessionCommand,
@@ -70,6 +72,12 @@ export const agentCommand = {
   },
   switchAgent(agent: 'openclaw' | 'claude-code'): SwitchAgentCommand {
     return { type: "switch_agent", agent };
+  },
+  setEffort(action: 'increase' | 'decrease' | 'commit' | 'cancel', sessionId?: string): SetEffortCommand {
+    return { type: "set_effort", action, sessionId };
+  },
+  newSession(agent: string, cwd: string): NewSessionCommand {
+    return { type: "new_session", agent, cwd };
   },
   focusSession(sessionId: string): FocusSessionCommand {
     return { type: "focus_session", sessionId };

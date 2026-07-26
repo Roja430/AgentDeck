@@ -155,6 +155,30 @@ sealed class AgentCommand {
         }
     }
 
+    data class SetEffort(val action: String, val sessionId: String? = null) : AgentCommand() {
+        override val typeTag: String = "set_effort"
+        override fun toJson(): String {
+            val buf = StringBuilder()
+            buf.append("{\"type\":\"set_effort\"")
+            buf.append(",\"action\":").append(encode(action))
+            if (sessionId != null) buf.append(",\"sessionId\":").append(encode(sessionId))
+            buf.append("}")
+            return buf.toString()
+        }
+    }
+
+    data class NewSession(val agent: String, val cwd: String) : AgentCommand() {
+        override val typeTag: String = "new_session"
+        override fun toJson(): String {
+            val buf = StringBuilder()
+            buf.append("{\"type\":\"new_session\"")
+            buf.append(",\"agent\":").append(encode(agent))
+            buf.append(",\"cwd\":").append(encode(cwd))
+            buf.append("}")
+            return buf.toString()
+        }
+    }
+
     data class FocusSession(val sessionId: String) : AgentCommand() {
         override val typeTag: String = "focus_session"
         override fun toJson(): String {

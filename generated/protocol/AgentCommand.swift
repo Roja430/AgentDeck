@@ -21,6 +21,8 @@ public enum AgentCommand: Equatable {
     case diag(action: String)
     case utility(action: String, value: Int?)
     case switchAgent(agent: String)
+    case setEffort(action: String, sessionId: String?)
+    case newSession(agent: String, cwd: String)
     case focusSession(sessionId: String)
     case clearSessionFocus
     case sessionCommand(sessionId: String, command: [String: Any])
@@ -82,6 +84,16 @@ public enum AgentCommand: Equatable {
         case .switchAgent(let agent):
             var dict: [String: Any] = ["type": "switch_agent"]
             dict["agent"] = agent
+            return dict
+        case .setEffort(let action, let sessionId):
+            var dict: [String: Any] = ["type": "set_effort"]
+            dict["action"] = action
+            if let sessionId = sessionId { dict["sessionId"] = sessionId }
+            return dict
+        case .newSession(let agent, let cwd):
+            var dict: [String: Any] = ["type": "new_session"]
+            dict["agent"] = agent
+            dict["cwd"] = cwd
             return dict
         case .focusSession(let sessionId):
             var dict: [String: Any] = ["type": "focus_session"]
@@ -155,6 +167,8 @@ public enum AgentCommand: Equatable {
         case .diag: return "diag"
         case .utility: return "utility"
         case .switchAgent: return "switch_agent"
+        case .setEffort: return "set_effort"
+        case .newSession: return "new_session"
         case .focusSession: return "focus_session"
         case .clearSessionFocus: return "clear_session_focus"
         case .sessionCommand: return "session_command"

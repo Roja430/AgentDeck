@@ -35,6 +35,7 @@ private val klaxon = Klaxon()
     .convert(State::class,               { State.fromValue(it.string!!) },               { "\"${it.value}\"" })
     .convert(BridgeEventStatus::class,   { BridgeEventStatus.fromValue(it.string!!) },   { "\"${it.value}\"" })
     .convert(TokenStatus::class,         { TokenStatus.fromValue(it.string!!) },         { "\"${it.value}\"" })
+    .convert(BudgetState::class,         { BudgetState.fromValue(it.string!!) },         { "\"${it.value}\"" })
     .convert(Type::class,                { Type.fromValue(it.string!!) },                { "\"${it.value}\"" })
     .convert(VoiceAssistantState::class, { VoiceAssistantState.fromValue(it.string!!) }, { "\"${it.value}\"" })
 
@@ -224,6 +225,7 @@ data class BridgeEvent (
     val sevenDayResetsAt: String? = null,
     val tokenStatus: TokenStatus? = null,
     val toolCalls: Double? = null,
+    val transcriptCost: TranscriptCostSummary? = null,
     val usageStale: Boolean? = null,
     val status: BridgeEventStatus? = null,
 
@@ -250,6 +252,14 @@ data class BridgeEvent (
     val dim: DisplayDimInstruction? = null,
 
     val displayOn: Boolean? = null,
+
+    /**
+     * Directories an agent has recently worked in, newest first — the launch targets for
+     * `new_session`. Rides this event because it answers the same question the session list
+     * does: what can I work on right now.
+     */
+    val recentProjects: List<RecentProject>? = null,
+
     val sessions: List<SessionInfo>? = null,
     val encoders: List<EncoderSlotState>? = null,
     val takeoverActive: Boolean? = null,
@@ -879,6 +889,20 @@ enum class PromptType(val value: String) {
 }
 
 /**
+ * A directory an agent has recently worked in, offered as a launch target.
+ */
+data class RecentProject (
+    val lastActiveAt: Double,
+
+    /**
+     * Trailing folder name, for display.
+     */
+    val name: String,
+
+    val path: String
+)
+
+/**
  * Last review verdict (with reviewFindings) — devices render "risk: low · 2" on the REVIEW
  * tile.
  */
@@ -1186,6 +1210,86 @@ enum class TokenStatus(val value: String) {
         }
     }
 }
+
+/**
+ * Cost derived locally from Claude Code transcripts, at API list prices.
+ *
+ * Complements — never replaces — the 5h/7d quota fields above: those say how much of the
+ * subscription window is spent, this says what the same work would cost on the API.
+ * Subscription users have no dollar figure otherwise. Estimate only: list prices, no
+ * contract or volume discounts.
+ */
+data class TranscriptCostSummary (
+    /**
+     * Today's spend against that budget. Absent when no budget is configured.
+     */
+    val budgetState: BudgetState? = null,
+
+    /**
+     * Highest cost first, 30-day window.
+     */
+    val byModel: List<TranscriptCostModel>,
+
+    /**
+     * Cache-read share of all input tokens over the 30-day window, 0–1.
+     */
+    val cacheHitRatio: Double? = null,
+
+    /**
+     * Daily budget from settings, when the user has set one.
+     */
+    val dailyBudgetUsd: Double? = null,
+
+    val last30Days: TranscriptCostBucket,
+    val last7Days: TranscriptCostBucket,
+
+    /**
+     * Epoch ms of the scan that produced this summary.
+     */
+    val scannedAt: Double,
+
+    val today: TranscriptCostBucket,
+
+    /**
+     * Models with no pricing entry. Non-empty means costUsd is an undercount.
+     */
+    val unpricedModels: List<String>? = null
+)
+
+/**
+ * Today's spend against that budget. Absent when no budget is configured.
+ */
+enum class BudgetState(val value: String) {
+    Ok("ok"),
+    Over("over"),
+    Warn("warn");
+
+    companion object {
+        public fun fromValue(value: String): BudgetState = when (value) {
+            "ok"   -> Ok
+            "over" -> Over
+            "warn" -> Warn
+            else   -> throw IllegalArgumentException()
+        }
+    }
+}
+
+data class TranscriptCostModel (
+    val costUsd: Double,
+    val model: String
+)
+
+/**
+ * Token counts and priced cost for one time bucket of local transcript history.
+ */
+data class TranscriptCostBucket (
+    val cacheCreationTokens: Double,
+    val cacheReadTokens: Double,
+    val calls: Double,
+    val costUsd: Double,
+    val inputTokens: Double,
+    val outputTokens: Double
+)
 
 enum class Type(val value: String) {
     ApmeEval("apme_eval"),
