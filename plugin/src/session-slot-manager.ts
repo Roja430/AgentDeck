@@ -1040,21 +1040,25 @@ export class SessionSlotManager {
       }
     }
 
-    // Claude Code IDLE: show quick action presets (GO ON, REVIEW, COMMIT, CLEAR)
-    if (!isOpenClaw && this._detailState === State.IDLE && contentIdx < CC_PRESET_DEFS.length) {
-      const def = CC_PRESET_DEFS[contentIdx];
-      const preset: PresetAction = {
-        label: def.label,
-        iconSvg: def.iconSvg ?? '',
-        color: def.color,
-        textColor: def.textColor,
-        prompt: def.prompt,
-      };
-      return { type: 'preset', preset };
-    }
-
+    // Claude Code IDLE quick actions.
     if (!isOpenClaw && this._detailState === State.IDLE) {
-      return this.idleStatusCard(session, contentIdx - CC_PRESET_DEFS.length);
+      const defs = CC_PRESET_DEFS;
+      if (contentIdx < defs.length) {
+        const def = defs[contentIdx];
+        const preset: PresetAction = {
+          label: def.label,
+          iconSvg: def.iconSvg ?? '',
+          color: def.color,
+          textColor: def.textColor,
+          subtitle: def.subtitle,
+          prompt: def.prompt,
+          // Carried through — without it REVIEW (which has a localAction and no
+          // prompt) resolved to a preset with nothing to do, so the key was dead.
+          localAction: def.localAction,
+        };
+        return { type: 'preset', preset };
+      }
+      return this.idleStatusCard(session, contentIdx - defs.length);
     }
 
     // OpenClaw already surfaces MODEL as an actionable preset, and PROCESSING
