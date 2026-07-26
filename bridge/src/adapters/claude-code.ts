@@ -14,6 +14,12 @@ export class ClaudeCodeAdapter extends PtyAdapter {
   private outputParser: OutputParser;
   /** Mode switch debounce */
   private lastModeSwitchTime = 0;
+  /** When the `/model` picker was last opened or nudged; 0 = closed. */
+  private effortPickerOpenedAt = 0;
+  /** How long an opened picker is assumed to still be on screen. */
+  static readonly EFFORT_PICKER_TTL_MS = 15_000;
+  /** Gap between opening the picker and the first arrow key. */
+  static readonly EFFORT_PICKER_OPEN_DELAY_MS = 250;
 
   constructor() {
     super();
@@ -85,7 +91,51 @@ export class ClaudeCodeAdapter extends PtyAdapter {
       this.ptyManager.write('\x1b[Z');
       return true;
     }
+    if (cmd.type === 'set_effort') {
+      this.handleSetEffort(cmd.action);
+      return true;
+    }
     return false;
+  }
+
+  /**
+   * Drive the `/model` picker, where Claude Code exposes reasoning effort:
+   * ← / → adjust the level, Enter confirms, Esc backs out.
+   *
+   * The picker has to be open before an arrow means anything, and only this
+   * side knows whether it is — so the open is issued here on the first nudge
+   * rather than being a separate command the deck has to sequence. The armed
+   * flag expires on its own because the user can also close the picker from the
+   * keyboard, which we never see.
+   */
+  private handleSetEffort(action: 'increase' | 'decrease' | 'commit' | 'cancel'): void {
+    const now = Date.now();
+    const armed = now - this.effortPickerOpenedAt < ClaudeCodeAdapter.EFFORT_PICKER_TTL_MS;
+
+    if (action === 'commit' || action === 'cancel') {
+      if (!armed) {
+        debug('adapter:claude', `set_effort: ${action} ignored — picker not open`);
+        return;
+      }
+      // Enter confirms the highlighted level; Esc leaves it unchanged.
+      this.ptyManager.write(action === 'commit' ? '\r' : '\x1b');
+      this.effortPickerOpenedAt = 0;
+      debug('adapter:claude', `set_effort: ${action}`);
+      return;
+    }
+
+    const arrow = action === 'increase' ? '\x1b[C' : '\x1b[D';
+    if (!armed) {
+      debug('adapter:claude', 'set_effort: opening /model picker');
+      this.ptyManager.write('/model\r');
+      this.effortPickerOpenedAt = now;
+      // The picker needs a beat to render before it will accept an arrow key.
+      setTimeout(() => this.ptyManager.write(arrow), ClaudeCodeAdapter.EFFORT_PICKER_OPEN_DELAY_MS);
+      return;
+    }
+    this.effortPickerOpenedAt = now; // each nudge extends the window
+    this.ptyManager.write(arrow);
+    debug('adapter:claude', `set_effort: ${action}`);
   }
 
   /**

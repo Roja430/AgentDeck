@@ -12,6 +12,7 @@ import {
   type DeckSlotConfig,
   type DeckSlotMapEvent,
   type SessionInfo,
+  type SessionsListEvent,
 } from '@agentdeck/shared';
 
 import { ConnectionManager } from './connection-manager.js';
@@ -26,6 +27,18 @@ import {
   updateClaudeUsageDial,
   refreshClaudeUsageDial,
 } from './actions/option-dial.js';
+import {
+  EffortDialAction,
+  initEffortDial,
+  updateEffortDial,
+  refreshEffortDial,
+} from './actions/effort-dial.js';
+import {
+  SessionDialAction,
+  initSessionDial,
+  updateSessionDialSessions,
+  refreshSessionDial,
+} from './actions/session-dial.js';
 import {
   LauncherDialAction,
   initLauncherDial,
@@ -115,6 +128,23 @@ const connMgr = new ConnectionManager();
 // ---- Initialize action modules ----
 initOptionDial(connMgr);
 initLauncherDial();
+initEffortDial(sendFocusedSessionCommand);
+initSessionDial({
+  focus: (sessionId) => {
+    // Same path the keypad takes, so the dial and the keys cannot disagree
+    // about what 'focused' means.
+    const mgr = getSessionSlotManager();
+    mgr.enterDetailView(sessionId);
+    connMgr.focusSession(sessionId);
+    primeDetailViewFromSession(mgr.getFocusedSession());
+    broadcastStateUpdate();
+  },
+  back: () => {
+    focusedDetailState.clear();
+    exitDetailView();
+    broadcastStateUpdate();
+  },
+});
 initUtilityDial();
 initUsageDial(connMgr);
 
@@ -218,6 +248,10 @@ connMgr.on('state_update', (ev: StateUpdateEvent) => {
   currentState = ev.state;
   currentMode = ev.permissionMode;
 
+  // Reasoning-effort dial mirrors the focused session: the level itself, the
+  // model it belongs to, and the state that decides whether it may steer.
+  updateEffortDial(ev.state, ev.modelName, ev.effortLevel);
+
   // Track proxied agent type from daemon (state_update.agentType overrides connection-level detection)
   if (ev.agentType === 'openclaw' || ev.agentType === 'claude-code' || ev.agentType === 'codex-cli' || ev.agentType === 'codex-app' || ev.agentType === 'opencode' || ev.agentType === 'antigravity') {
     proxiedAgentType = ev.agentType;
@@ -313,6 +347,7 @@ connMgr.on('connection', (ev: ConnectionEvent) => {
 connMgr.on('sessions_list', (ev: { type: 'sessions_list'; sessions: SessionInfo[] }) => {
   dlog('Plugin', `sessions_list: ${ev.sessions.length} sessions`);
   updateSessionSlotSessions(ev.sessions);
+  updateSessionDialSessions(ev.sessions, getFocusedSession()?.id);
   if (isInDetailView()) {
     const focused = getFocusedSession();
     const snapshot = focusedDetailState.snapshot;
@@ -460,6 +495,8 @@ function broadcastStateUpdate(): void {
   updateLauncherDialState();
   updateUtilityDialState(currentState);
   refreshClaudeUsageDial();
+  refreshEffortDial();
+  refreshSessionDial();
   updateUsageDialState();
   // Keypad slots too — on display wake nothing else will repaint them, since
   // sessions_list only fires when the session set actually changes.
@@ -471,6 +508,8 @@ streamDeck.actions.registerAction(new ResponseDialAction());
 streamDeck.actions.registerAction(new LauncherDialAction());
 streamDeck.actions.registerAction(new UtilityDialAction());
 streamDeck.actions.registerAction(new UsageDialAction());
+streamDeck.actions.registerAction(new EffortDialAction());
+streamDeck.actions.registerAction(new SessionDialAction());
 streamDeck.actions.registerAction(new SessionSlotButtonAction());
 
 // ---- Slot Map Reporting (Phase A7) ----

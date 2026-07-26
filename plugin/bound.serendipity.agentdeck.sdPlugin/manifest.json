@@ -84,6 +84,52 @@
       "UUID": "bound.serendipity.agentdeck.iterm-dial"
     },
     {
+      "Icon": "static/imgs/option",
+      "Name": "Reasoning Effort",
+      "States": [
+        {
+          "Image": "static/imgs/keys/option",
+          "Name": "Reasoning Effort",
+          "ShowTitle": false
+        }
+      ],
+      "Controllers": [
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "layouts/encoder-layout.json",
+        "TriggerDescription": {
+          "Rotate": "Adjust reasoning effort",
+          "Push": "Confirm",
+          "Touch": "Cancel"
+        }
+      },
+      "UUID": "bound.serendipity.agentdeck.effort-dial"
+    },
+    {
+      "Icon": "static/imgs/session",
+      "Name": "Session Navigator",
+      "States": [
+        {
+          "Image": "static/imgs/keys/session",
+          "Name": "Session Navigator",
+          "ShowTitle": false
+        }
+      ],
+      "Controllers": [
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "layouts/encoder-layout.json",
+        "TriggerDescription": {
+          "Rotate": "Move between sessions",
+          "Push": "Jump to session",
+          "Touch": "Back"
+        }
+      },
+      "UUID": "bound.serendipity.agentdeck.session-dial"
+    },
+    {
       "Icon": "static/imgs/launcher",
       "Name": "Launcher",
       "States": [
@@ -125,6 +171,10 @@
     {
       "Platform": "mac",
       "MinimumVersion": "26.0"
+    },
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
     }
   ],
   "Nodejs": {

@@ -1,20 +1,21 @@
 ---
 id: spec.streamdeck-layout
 title: Stream Deck+ Layout
-description: The current session-per-button keypad, the four encoder assignments, and the immutable action UUID mapping.
+description: The current session-per-button keypad, the encoder assignments, the two unassigned steering dials, and the immutable action UUID mapping.
 category: Specs
 locale: en
 canonical: true
 status: stable
 owner: Plugin maintainers
-reviewed: 2026-07-21
-revision: 2026-07-21
+reviewed: 2026-07-26
+revision: 2026-07-26
 source_of_truth: docs/streamdeck-layout.md
 validators: [pnpm test]
 ---
 # Stream Deck+ Layout
 
-**Manifest actions** (5 total): `session-slot` (Keypad; device-grid aware) + 4 encoders on Stream Deck+.
+**Manifest actions** (7 total): `session-slot` (Keypad; device-grid aware), the 4 encoders the
+shipped Stream Deck+ profile assigns, and 2 steering dials the profile leaves unassigned.
 The earlier mode-dial keypad and the capabilities dropped on the way here are recorded in
 [Retired and Experimental Surfaces](retired-surfaces.md).
 
@@ -24,9 +25,18 @@ UUIDs are immutable post-distribution, so several no longer describe their role.
 |---|---|---|
 | `session-slot` | Session Slot | Keypad, device-grid aware |
 | `utility-dial` | Volume | E1 — macOS output volume |
-| `option-dial` | Claude Usage | E2 — Claude quota gauge |
+| `option-dial` | Claude Usage | E2 — Claude quota gauge + cost views |
 | `iterm-dial` | Codex Usage | E3 — Codex quota gauge |
 | `launcher` | Launcher | E4 — open an agent |
+| `effort-dial` | Reasoning Effort | unassigned — drives the `/model` effort picker |
+| `session-dial` | Session Navigator | unassigned — rotate between sessions, press to focus |
+
+### Why two actions ship unassigned
+
+Stream Deck+ has four encoders and the profile already spends all four. Adding either steering
+dial to the shipped profile would rearrange the encoders of every existing install, so both are
+placed by the user instead. Volume (E1) is the usual trade: it drives macOS output volume through
+`osascript` and is a no-op on Windows.
 
 ## Keypad
 
@@ -61,6 +71,9 @@ No session while daemon is connected: healthy idle dashboard, not recovery UI. S
 - Keypad UX 는 Stream Deck 과 동일하지만, encoder 가 상세 화면의 보조 조작면이다.
 - E1 은 볼륨, E2/E3 는 Claude/Codex usage 게이지, E4 는 에이전트 런처다.
 - Session detail 에 들어가면 keypad 는 "결정 버튼", encoder LCD 는 "읽기/스크롤" 역할로 분리한다. 긴 approval 문구를 키 타일에 억지로 넣지 않고 wide canvas 에서 읽게 한다.
+- **읽기 전용이 아닌 encoder 는 steering dial 두 개뿐이고, 둘 다 기본 프로필에 없다.** `effort-dial` 은
+  `/model` 피커를 ← → 로 밀고 (idle 일 때만 — 처리 중 Esc 는 피커를 닫는 게 아니라 에이전트를 중단시킨다),
+  `session-dial` 은 회전 중에는 아무것도 보내지 않고 누를 때만 focus 를 옮긴다.
 
 ### Ulanzi D200H
 

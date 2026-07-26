@@ -8,12 +8,18 @@
  *   E2 = Claude usage gauge          — optionIds  (UUID kept as `option-dial`)
  *   E3 = Codex usage gauge           — usageIds   (UUID kept as `iterm-dial`)
  *   E4 = launcher                    — launcherIds
+ *
+ * `effortIds` has no default slot: SD+ has four encoders and all four are
+ * already assigned, so the effort dial ships as an action the user places
+ * themselves (volume is the usual trade — it is a no-op outside macOS).
  */
 export const encoderRegistry = {
   utilityIds: [] as string[],   // Volume dial (E1)
   optionIds: [] as string[],    // Claude usage dial (E2)
   usageIds: [] as string[],     // Codex usage dial (E3)
   launcherIds: [] as string[],  // Launcher dial (E4)
+  effortIds: [] as string[],       // Reasoning-effort dial (unassigned by default)
+  sessionNavIds: [] as string[],   // Session navigation dial (unassigned by default)
 };
 
 // ─── Daemon connection state (shared with all four encoder dials) ────────
