@@ -25,7 +25,14 @@ const RELAYED_EVENTS = new Set([
   'usage_update',
 ]);
 
-/** Commands routed from daemon clients to focused session */
+/**
+ * Commands routed from daemon clients to the focused session.
+ *
+ * An allowlist, so a command the deck sends but this set does not name is
+ * dropped here without a word — which is exactly what happened to the steering
+ * dials: they sent, the daemon discarded, and the terminal showed nothing.
+ * Add the type here whenever a new session-directed command is introduced.
+ */
 const ROUTED_COMMANDS = new Set([
   'respond',
   'interrupt',
@@ -34,6 +41,8 @@ const ROUTED_COMMANDS = new Set([
   'send_prompt',
   'navigate_option',
   'switch_mode',
+  'set_effort',
+  'set_model',
 ]);
 
 export type FocusEventHandler = (event: BridgeEvent) => void;
