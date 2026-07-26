@@ -58,7 +58,12 @@ function extractInterface(name) {
   // terminates at a `;` that lives outside any nested brace pair. This handles
   // multi-line literal unions (`'a' | 'b' | 'c'`) and nested object types
   // (`{ [key: string]: unknown }`).
-  const body = m[1];
+  // Comments come out BEFORE the split, not after: the split terminates a field
+  // at a top-level `;`, and a semicolon inside a doc comment therefore cut a
+  // field in half and dropped it from every generated mirror without a word.
+  const body = m[1]
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ");
   const entries = [];
   let buf = "";
   let depth = 0;
