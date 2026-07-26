@@ -49,17 +49,25 @@ let sessionState: State | undefined;
 let adjusting = false;
 /** Cursor into EFFORT_LEVELS. Follows the agent until the user turns the dial. */
 let cursor = 0;
+/** False when no session is focused — the press has nowhere to go. */
+let hasSession = false;
 
 export function initEffortDial(sender: CommandSender): void {
   send = sender;
 }
 
-/** Called from plugin.ts on every state_update. */
+/**
+ * Fed from `sessions_list` as well as `state_update`: an idle session emits no
+ * state_update for minutes at a time, and gating the press on a value that only
+ * arrives on change made the dial look dead.
+ */
 export function updateEffortDial(
   state: State | undefined,
   model: string | undefined,
   effort: string | undefined,
+  focused = true,
 ): void {
+  hasSession = focused;
   sessionState = state;
   modelName = model;
   effortLevel = effort;
@@ -103,9 +111,9 @@ function refreshEffortDials(): void {
   }
 }
 
-/** The press types into the prompt, so it only makes sense while idle. */
+/** The press types into the prompt, so it needs a focused, idle session. */
 function canSteer(): boolean {
-  return isDaemonConnected() && sessionState === State.IDLE;
+  return isDaemonConnected() && hasSession && sessionState === State.IDLE;
 }
 
 @action({ UUID: 'bound.serendipity.agentdeck.effort-dial' })

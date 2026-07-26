@@ -39,6 +39,23 @@ export const OFFERED_MODES: { label: string; value: string }[] = [
 export const MAX_MODE_STEPS = OFFERED_MODES.length + 2;
 
 /**
+ * Models offered when no catalog has arrived.
+ *
+ * `modelCatalog` only ever comes from the OpenClaw adapter — Claude Code emits
+ * nothing of the sort, so for a Claude session the catalog stays empty forever
+ * and a catalog-only dial would offer no models at all. `/model` accepts these
+ * aliases directly ("an alias for the latest model … or a model's full name"),
+ * which is enough to switch tiers from the deck.
+ */
+export const FALLBACK_MODELS: { key: string; name: string }[] = [
+  { key: 'default', name: 'Default' },
+  { key: 'haiku', name: 'Haiku' },
+  { key: 'sonnet', name: 'Sonnet' },
+  { key: 'opus', name: 'Opus' },
+  { key: 'fable', name: 'Fable' },
+];
+
+/**
  * The roll: models first, then modes.
  *
  * Unavailable models are dropped — the catalog marks models the account cannot
@@ -46,9 +63,10 @@ export const MAX_MODE_STEPS = OFFERED_MODES.length + 2;
  * off a 200px LCD to understand.
  */
 export function buildAgentEntries(catalog: ModelCatalogEntry[] = []): AgentDialEntry[] {
-  const models: AgentDialEntry[] = catalog
-    .filter((m) => m.available !== false)
-    .map((m) => ({ kind: 'model' as const, label: m.name || m.key, value: m.key }));
+  const usable = catalog.filter((m) => m.available !== false);
+  const models: AgentDialEntry[] = usable.length > 0
+    ? usable.map((m) => ({ kind: 'model' as const, label: m.name || m.key, value: m.key }))
+    : FALLBACK_MODELS.map((m) => ({ kind: 'model' as const, label: m.name, value: m.key }));
   const modes: AgentDialEntry[] = OFFERED_MODES.map((m) => ({
     kind: 'mode' as const,
     label: m.label,
@@ -58,7 +76,10 @@ export function buildAgentEntries(catalog: ModelCatalogEntry[] = []): AgentDialE
 }
 
 export class AgentDialState {
-  private entries: AgentDialEntry[] = [];
+  // Populated up front. The roll never depends on an event arriving: the modes
+  // are always offerable, and a Claude session never sends a catalog at all —
+  // waiting for one left the dial reading "No session" forever.
+  private entries: AgentDialEntry[] = buildAgentEntries([]);
   private cursor = 0;
   private activeModel: string | undefined;
   private activeMode: string | undefined;
@@ -108,7 +129,7 @@ export class AgentDialState {
   }
 
   reset(): void {
-    this.entries = [];
+    this.entries = buildAgentEntries([]);
     this.cursor = 0;
     this.activeModel = undefined;
     this.activeMode = undefined;

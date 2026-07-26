@@ -13,6 +13,7 @@ import {
   OFFERED_MODES,
   buildAgentEntries,
   isSameModel,
+  FALLBACK_MODELS,
 } from '../agent-dial-state.js';
 
 const catalog = (over: Partial<ModelCatalogEntry>[] = []): ModelCatalogEntry[] =>
@@ -35,8 +36,24 @@ describe('buildAgentEntries', () => {
     expect(entries.filter((e) => e.kind === 'model').map((e) => e.value)).toEqual(['ok']);
   });
 
-  it('still offers the modes with no catalog at all', () => {
-    expect(buildAgentEntries([]).every((e) => e.kind === 'mode')).toBe(true);
+  it('falls back to the CLI aliases when no catalog arrives', () => {
+    // `modelCatalog` only ever comes from the OpenClaw adapter, so for a Claude
+    // session it stays empty forever — a catalog-only roll offered no models
+    // and the dial read "No session".
+    const entries = buildAgentEntries([]);
+    const models = entries.filter((e) => e.kind === 'model').map((e) => e.value);
+    expect(models).toEqual(FALLBACK_MODELS.map((m) => m.key));
+    expect(entries.filter((e) => e.kind === 'mode')).toHaveLength(OFFERED_MODES.length);
+  });
+
+  it('prefers a real catalog over the fallback once one arrives', () => {
+    const entries = buildAgentEntries(catalog([{ key: 'sonnet' }]));
+    expect(entries.filter((e) => e.kind === 'model').map((e) => e.value)).toEqual(['sonnet']);
+  });
+
+  it('falls back rather than emptying when every model is unavailable', () => {
+    const entries = buildAgentEntries(catalog([{ key: 'nope', available: false }]));
+    expect(entries.filter((e) => e.kind === 'model').length).toBe(FALLBACK_MODELS.length);
   });
 
   it('leaves the blanket-approval modes off the dial', () => {
@@ -61,9 +78,10 @@ describe('AgentDialState', () => {
   it('clamps the cursor when the list shrinks under it', () => {
     const s = new AgentDialState();
     s.setCatalog(catalog([{ key: 'a' }, { key: 'b' }, { key: 'c' }]));
-    s.rotate(1); s.rotate(1); // → c
-    s.setCatalog([]);
-    expect(s.current()?.kind).toBe('mode');
+    while (s.getCursor() < s.getEntries().length - 1) s.rotate(1); // → last entry
+    s.setCatalog(catalog([{ key: 'a' }]));
+    expect(s.getCursor()).toBeLessThan(s.getEntries().length);
+    expect(s.current()).toBeDefined();
   });
 
   it('wraps in both directions', () => {

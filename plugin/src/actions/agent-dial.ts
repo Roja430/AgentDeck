@@ -41,6 +41,7 @@ type CommandSender = (command: { type: string; [key: string]: unknown }) => void
 let send: CommandSender | null = null;
 const state = new AgentDialState();
 let sessionState: State | undefined;
+let hasSession = false;
 let seeking: { target: string; attempts: number } | null = null;
 let seekTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -48,19 +49,29 @@ export function initAgentDial(sender: CommandSender): void {
   send = sender;
 }
 
-/** Called from plugin.ts on every state_update. */
-export function updateAgentDial(
-  sessionStateNow: State | undefined,
-  modelName: string | undefined,
-  permissionMode: string | undefined,
-  catalog: ModelCatalogEntry[] | undefined,
-): void {
-  sessionState = sessionStateNow;
-  if (catalog) state.setCatalog(catalog);
-  state.setActive(modelName, permissionMode);
+export interface AgentDialInput {
+  /** False when no session is focused — the press has nowhere to go. */
+  hasSession: boolean;
+  state?: State;
+  modelName?: string;
+  permissionMode?: string;
+  catalog?: ModelCatalogEntry[];
+}
+
+/**
+ * Fed from two places, because neither is sufficient alone: `sessions_list`
+ * carries every focused session's state on a poll, while `state_update` only
+ * arrives when something changes — an idle session can go minutes without one,
+ * which is long enough for a dial gated on it to look broken.
+ */
+export function updateAgentDial(input: AgentDialInput): void {
+  hasSession = input.hasSession;
+  sessionState = input.state;
+  if (input.catalog?.length) state.setCatalog(input.catalog);
+  state.setActive(input.modelName, input.permissionMode ?? state.getActiveMode());
   // The agent reporting the target ends the nudging — this is the only signal
   // that the mode actually landed, since nothing acknowledges a Shift+Tab.
-  if (seeking && permissionMode === seeking.target) stopSeeking();
+  if (seeking && input.permissionMode === seeking.target) stopSeeking();
   refreshAgentDials();
 }
 
@@ -101,6 +112,15 @@ function stepMode(): void {
     refreshAgentDials();
     return;
   }
+  // Never cycle blind. Without a reported mode there is no way to know where
+  // the nudges are landing, and a run of them would leave the agent on an
+  // arbitrary permission setting — the one outcome worth avoiding here.
+  if (seeking.attempts > 0 && state.getActiveMode() === undefined) {
+    dwarn('AgentDial', 'agent reports no permission mode — not cycling further');
+    stopSeeking();
+    refreshAgentDials();
+    return;
+  }
   seeking.attempts += 1;
   send?.({ type: 'switch_mode' });
   dlog('AgentDial', `switch_mode → seeking ${seeking.target} (${seeking.attempts})`);
@@ -126,11 +146,13 @@ function buildCanvas(): string {
 
   const entry = state.current();
   const entries = state.getEntries();
-  if (!entry) {
+  if (!entry || !hasSession) {
+    // The roll is still there — this says the press has nowhere to go, which is
+    // fixed by focusing a session on the keypad, not by turning the dial.
     return renderUtilityGeneric({
-      title: 'AGENT',
+      title: entry ? (entry.kind === 'model' ? 'MODEL' : 'MODE') : 'AGENT',
       icon: '○',
-      value: 'No session',
+      value: entry ? `${entry.label} · no focus` : 'No session',
       indicator: { value: 0, bar_fill_c: '#64748b' },
     });
   }
@@ -177,7 +199,7 @@ export class AgentDialAction extends SingletonAction {
 
     // Both `/model` and Shift+Tab are typed into the prompt; mid-turn they would
     // be swallowed by the running agent or, worse, interrupt it.
-    if (sessionState !== State.IDLE) {
+    if (!hasSession || sessionState !== State.IDLE) {
       dlog('AgentDial', `press ignored — state=${sessionState ?? 'unknown'}`);
       void (ev.action as any).showAlert?.().catch(() => {});
       return;

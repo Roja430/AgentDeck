@@ -266,11 +266,22 @@ connMgr.on('state_update', (ev: StateUpdateEvent) => {
 
   // Reasoning-effort dial mirrors the focused session: the level itself, the
   // model it belongs to, and the state that decides whether it may steer.
-  updateEffortDial(ev.state, ev.modelName, ev.effortLevel);
-
-  // Agent-control dial: the catalog supplies the model roll, permissionMode is
-  // the only acknowledgement a Shift+Tab ever gets.
-  updateAgentDial(ev.state, ev.modelName, ev.permissionMode, ev.modelCatalog);
+  // Only a session-scoped event may steer these. The daemon broadcasts its OWN
+  // state on every focus change and stamps the focused session's id onto it —
+  // its state is DISCONNECTED, since it runs no agent, and letting that through
+  // left both dials permanently refusing the press.
+  if (ev.agentType !== ('daemon' as unknown as typeof ev.agentType)) {
+    updateEffortDial(ev.state, ev.modelName, ev.effortLevel, true);
+    // Agent-control dial: permissionMode is the only acknowledgement a
+    // Shift+Tab ever gets.
+    updateAgentDial({
+      hasSession: true,
+      state: ev.state,
+      modelName: ev.modelName,
+      permissionMode: ev.permissionMode,
+      catalog: ev.modelCatalog,
+    });
+  }
 
   // Track proxied agent type from daemon (state_update.agentType overrides connection-level detection)
   if (ev.agentType === 'openclaw' || ev.agentType === 'claude-code' || ev.agentType === 'codex-cli' || ev.agentType === 'codex-app' || ev.agentType === 'opencode' || ev.agentType === 'antigravity') {
@@ -371,6 +382,19 @@ connMgr.on('sessions_list', (ev: SessionsListEvent) => {
   updateSessionSlotSessions(ev.sessions);
   updateSessionDialSessions(ev.sessions, getFocusedSession()?.id);
   updateLauncherProjects(ev.recentProjects ?? []);
+
+  // The steering dials read the focused session from here as well as from
+  // state_update. sessions_list is polled, so it keeps reporting an idle
+  // session; state_update only fires on change, and an agent sitting at the
+  // prompt produces none for minutes at a time.
+  const steered = getFocusedSession();
+  const steeredState = steered?.state as State | undefined;
+  updateEffortDial(steeredState, steered?.modelName, steered?.effortLevel, !!steered);
+  updateAgentDial({
+    hasSession: !!steered,
+    state: steeredState,
+    modelName: steered?.modelName,
+  });
   if (isInDetailView()) {
     const focused = getFocusedSession();
     const snapshot = focusedDetailState.snapshot;
