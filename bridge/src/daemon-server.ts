@@ -100,6 +100,8 @@ import { SerialModule } from './modules/serial-module.js';
 import { esp32ConnectionCount, getESP32DeviceInfo, onESP32Message, sendWifiProvisionToAll, handleESP32Wake, getESP32Ports, getSerialConnectionStatus, getSerialLastError, getSerialReachableBoards } from './esp32-serial.js';
 import { loadWifiConfig } from './wifi-config.js';
 import { getConnectedAdbDevices, hasAdb, getAdbDeviceCount } from './adb-reverse.js';
+import { launchSession } from './session-launcher.js';
+import { notifyFailure } from './desktop-notify.js';
 import { getPixooDeviceDetails, pixooDeviceCount } from './pixoo/pixoo-bridge.js';
 import { loadTimeboxDevices } from './timebox/timebox-settings.js';
 import { getLanIp, stripUnsafeText, cleanRawText, prepareMarkdownDetail, normalizeCommandPrompt, formatDurationSec, type TimelineEntry } from '@agentdeck/shared';
@@ -2687,6 +2689,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         case 'escape': core.stateMachine.handleUserAction('interrupt'); break;
         case 'select_option': core.stateMachine.handleUserAction('select_option'); break;
         case 'send_prompt': core.stateMachine.handleUserAction('send_prompt'); break;
+      }
+      return;
+    }
+    if (cmd.type === 'new_session') {
+      // The deck's "new task": open a terminal running the agent in a project
+      // directory. Nothing is routed to an existing session — this creates one.
+      const { agent, cwd } = cmd as { agent: string; cwd: string };
+      const result = launchSession({ agent, cwd });
+      debug('daemon', `new_session ${agent} in ${cwd}: ${result.ok ? 'launched' : result.error}`);
+      if (!result.ok) {
+        // The command channel has no reply path, and a press that silently does
+        // nothing is indistinguishable from a dead daemon — say why on the desktop.
+        notifyFailure(`Could not start ${agent}: ${result.error ?? 'launch failed'}`);
       }
       return;
     }

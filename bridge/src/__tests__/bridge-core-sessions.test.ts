@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createServer } from 'http';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { BridgeCore } from '../bridge-core.js';
 import { createTempDataDir, type TempDataDir } from './helpers/temp-data-dir.js';
 
@@ -15,8 +18,16 @@ describe('BridgeCore sessions_list', () => {
   let core: BridgeCore;
   let httpServer: ReturnType<typeof createServer>;
   let tempDir: TempDataDir;
+  let claudeHome: string;
+  const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
 
   beforeEach(() => {
+    // sessions_list now carries recentProjects, which are scanned from Claude
+    // Code's transcript history. Point that at an empty directory so the test
+    // asserts on its own fixtures instead of whatever the developer's machine
+    // happens to have worked on.
+    claudeHome = mkdtempSync(join(tmpdir(), 'agentdeck-core-claude-'));
+    process.env.CLAUDE_CONFIG_DIR = claudeHome;
     tempDir = createTempDataDir();
     httpServer = createServer();
     core = new BridgeCore({
@@ -32,6 +43,9 @@ describe('BridgeCore sessions_list', () => {
     core.displayMonitor.stop();
     httpServer.close();
     tempDir.cleanup();
+    if (originalClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+    rmSync(claudeHome, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
 
@@ -59,7 +73,9 @@ describe('BridgeCore sessions_list', () => {
     await core.broadcastSessionsList();
 
     expect(mockBuildEnrichedSessionsList).toHaveBeenCalledWith(core.sessionId, 'idle', undefined, undefined);
-    expect(broadcastSpy).toHaveBeenCalledWith({
+    // objectContaining on the envelope too: the event grows fields over time and
+    // an exact match makes every addition look like a regression here.
+    expect(broadcastSpy).toHaveBeenCalledWith(expect.objectContaining({
       type: 'sessions_list',
       sessions: [
         expect.objectContaining({
@@ -70,7 +86,7 @@ describe('BridgeCore sessions_list', () => {
           agentType: 'codex-cli',
         }),
       ],
-    });
+    }));
   });
 
   it('sendInitialState sends enriched sessions_list to the connecting client', async () => {

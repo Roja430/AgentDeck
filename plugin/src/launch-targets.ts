@@ -35,6 +35,36 @@ export interface LaunchEntry {
   label: string;
   agent: string;
   target: string;
+  /**
+   * Set on "new task" entries. The dial sends a `new_session` command for these
+   * instead of walking `target`, because starting a session is the daemon's job
+   * — the plugin has no terminal to open one in.
+   */
+  newSession?: { agent: string; cwd: string };
+}
+
+/** Agent a "new task" entry starts. Only Claude Code has a keypad presence. */
+const NEW_SESSION_AGENT = 'claude';
+
+/**
+ * Append one "new task" entry per recent project.
+ *
+ * They come after the plain agent entries so the existing roll order is
+ * unchanged for anyone who has muscle memory for it, and the list stays empty
+ * when there is no history rather than showing a dead entry.
+ */
+export function buildEntriesWithProjects(
+  overrides: Record<string, unknown> = {},
+  recentProjects: { path: string; name: string }[] = [],
+): LaunchEntry[] {
+  const base = buildEntries(overrides);
+  const news = recentProjects.map((p) => ({
+    label: `New · ${p.name}`,
+    agent: NEW_SESSION_AGENT,
+    target: '',
+    newSession: { agent: NEW_SESSION_AGENT, cwd: p.path },
+  }));
+  return [...base, ...news];
 }
 
 /** Resolve the effective target for an agent, honouring a user override. */

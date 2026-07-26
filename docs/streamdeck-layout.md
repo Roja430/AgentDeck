@@ -27,9 +27,24 @@ UUIDs are immutable post-distribution, so several no longer describe their role.
 | `utility-dial` | Volume | E1 — macOS output volume |
 | `option-dial` | Claude Usage | E2 — Claude quota gauge + cost views |
 | `iterm-dial` | Codex Usage | E3 — Codex quota gauge |
-| `launcher` | Launcher | E4 — open an agent |
+| `launcher` | Launcher | E4 — open an agent, or start a new session in a recent project |
 | `effort-dial` | Reasoning Effort | unassigned — drives the `/model` effort picker |
 | `session-dial` | Session Navigator | unassigned — rotate between sessions, press to focus |
+
+### Launcher: new task
+
+The E4 roll ends with one `New · <folder>` entry per recent project. Those
+directories are read from Claude Code's own transcripts (`cwd` on each record,
+not the lossy folder name under `~/.claude/projects/`), so the list needs no
+configuration and is empty rather than wrong when there is no history.
+
+Pressing one sends `new_session` to the daemon, which opens **Windows Terminal**
+at that directory running `agentdeck claude`. Starting a session needs a terminal
+the user can read, and the plugin has none to offer. Windows Terminal is the only
+launcher used on Windows: it is the Windows 11 default and the one path verified
+to carry a working directory containing spaces intact. When it is absent the
+daemon raises a desktop notification saying so — a press that silently does
+nothing is indistinguishable from a dead daemon.
 
 ### Why two actions ship unassigned
 

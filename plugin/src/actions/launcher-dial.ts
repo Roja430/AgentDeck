@@ -32,7 +32,7 @@ import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
 import { dlog, dinfo, dwarn } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
-import { buildEntries, rollIndex, runTarget } from '../launch-targets.js';
+import { buildEntriesWithProjects, rollIndex, runTarget } from '../launch-targets.js';
 
 import type { JsonValue } from '@elgato/utils';
 
@@ -46,15 +46,26 @@ interface LauncherSettings {
 }
 
 let settings: LauncherSettings = {};
+/** Launch targets from the daemon — see updateLauncherProjects(). */
+let recentProjects: { path: string; name: string }[] = [];
+/** Sends a daemon command; injected so this file needs no link import. */
+let sendCommand: ((c: { type: string; [k: string]: unknown }) => void) | null = null;
 let index = 0;
 let currentLayout = '';
 
 function entries() {
-  return buildEntries(settings);
+  return buildEntriesWithProjects(settings, recentProjects);
 }
 
-export function initLauncherDial(): void {
+/** Called from plugin.ts on sessions_list — the daemon owns this list. */
+export function updateLauncherProjects(list: { path: string; name: string }[]): void {
+  recentProjects = list;
+  refreshLauncherDials();
+}
+
+export function initLauncherDial(send?: (c: { type: string; [k: string]: unknown }) => void): void {
   dinfo('Launcher', 'initLauncherDial');
+  sendCommand = send ?? null;
   refreshLauncherDials();
 }
 
@@ -149,6 +160,13 @@ export class LauncherDialAction extends SingletonAction {
     const entry = list[Math.min(index, list.length - 1)];
 
     try {
+      if (entry.newSession) {
+        // Starting a session needs a terminal, which only the daemon can open.
+        dlog('Launcher', `new_session ${entry.newSession.agent} in ${entry.newSession.cwd}`);
+        sendCommand?.({ type: 'new_session', ...entry.newSession });
+        refreshLauncherDials();
+        return;
+      }
       dlog('Launcher', `launch ${entry.agent}: ${entry.target}`);
       await runTarget(entry.target);
     } catch (err) {

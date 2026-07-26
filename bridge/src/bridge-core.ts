@@ -17,6 +17,7 @@ import { buildDisplayStateEvent } from './display-dim.js';
 import { loadMlxSettings } from '@agentdeck/shared';
 import { probeGateway, checkGatewayHealth } from './gateway-probe.js';
 import { fetchUsageFromApi, hasOAuthToken, getTokenStatus, type ApiUsageData } from './usage-api.js';
+import { listRecentProjects } from './recent-projects.js';
 import { getCachedCostSummary, refreshCostSummary } from './transcript-cost.js';
 import { buildEnrichedSessionsList } from './session-aggregator.js';
 import { activityFor } from './session-activity.js';
@@ -382,6 +383,29 @@ export class BridgeCore {
     this.stateMachine.emit('state_changed', this.stateMachine.getSnapshot());
   }
 
+  /** Cached launch targets — see `recentProjects()`. */
+  private cachedRecentProjects: import('./recent-projects.js').RecentProject[] = [];
+  private recentProjectsAt = 0;
+  private static readonly RECENT_PROJECTS_TTL_MS = 60_000;
+
+  /**
+   * Launch targets for `new_session`, cached because `sessions_list` goes out
+   * every 10s and the scan reads the tail of every recent transcript.
+   */
+  private recentProjects(): import('./recent-projects.js').RecentProject[] {
+    const now = Date.now();
+    if (now - this.recentProjectsAt < BridgeCore.RECENT_PROJECTS_TTL_MS) {
+      return this.cachedRecentProjects;
+    }
+    try {
+      this.cachedRecentProjects = listRecentProjects();
+    } catch (err) {
+      debug('BridgeCore', `recent projects scan failed: ${err}`);
+    }
+    this.recentProjectsAt = now;
+    return this.cachedRecentProjects;
+  }
+
   /** Build and return a usage event */
   buildUsage(): BridgeEvent {
     const snapshot = this.stateMachine.getSnapshot();
@@ -659,7 +683,8 @@ export class BridgeCore {
       if (a) s.activity = a;
     }
     this.attachLastEventFields(sessions);
-    const event = { type: 'sessions_list', sessions } as BridgeEvent;
+    // Launch targets ride the same event: both answer 'what can I work on'.
+    const event = { type: 'sessions_list', sessions, recentProjects: this.recentProjects() } as BridgeEvent;
     // Cache for the serial heartbeat re-sync (like display_state): a board that
     // reconnects across a daemon handoff during a quiet window otherwise sits
     // on an empty roster until the next unrelated session change broadcasts.
@@ -792,7 +817,7 @@ export class BridgeCore {
       snapshot.effortLevel ?? undefined,
     ).then((sessions) => {
       const enriched = this.sessionsEnricher ? this.sessionsEnricher(sessions) : sessions;
-      this.wsServer.sendTo(ws, { type: 'sessions_list', sessions: enriched } as BridgeEvent);
+      this.wsServer.sendTo(ws, { type: 'sessions_list', sessions: enriched, recentProjects: this.recentProjects() } as BridgeEvent);
     }).catch(() => {});
 
     // Extra events from caller

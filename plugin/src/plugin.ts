@@ -43,6 +43,7 @@ import {
   LauncherDialAction,
   initLauncherDial,
   updateLauncherDialState,
+  updateLauncherProjects,
 } from './actions/launcher-dial.js';
 import {
   UtilityDialAction,
@@ -127,7 +128,6 @@ const connMgr = new ConnectionManager();
 
 // ---- Initialize action modules ----
 initOptionDial(connMgr);
-initLauncherDial();
 initEffortDial(sendFocusedSessionCommand);
 initSessionDial({
   focus: (sessionId) => {
@@ -145,6 +145,7 @@ initSessionDial({
     broadcastStateUpdate();
   },
 });
+initLauncherDial((c) => connMgr.send(c as any));
 initUtilityDial();
 initUsageDial(connMgr);
 
@@ -344,10 +345,13 @@ connMgr.on('connection', (ev: ConnectionEvent) => {
 });
 
 // ---- v4 Session Slot: sessions_list → slot assignment ----
-connMgr.on('sessions_list', (ev: { type: 'sessions_list'; sessions: SessionInfo[] }) => {
+// SessionsListEvent from the SSOT rather than an inline shape — the inline one
+// silently omitted every field added to the event after it was written.
+connMgr.on('sessions_list', (ev: SessionsListEvent) => {
   dlog('Plugin', `sessions_list: ${ev.sessions.length} sessions`);
   updateSessionSlotSessions(ev.sessions);
   updateSessionDialSessions(ev.sessions, getFocusedSession()?.id);
+  updateLauncherProjects(ev.recentProjects ?? []);
   if (isInDetailView()) {
     const focused = getFocusedSession();
     const snapshot = focusedDetailState.snapshot;
