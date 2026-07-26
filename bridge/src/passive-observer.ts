@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile } from './proc.js';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);

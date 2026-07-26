@@ -10,11 +10,19 @@ import { execFileSync } from 'node:child_process';
  * platform's routing tool is unavailable (→ caller falls back to the heuristic).
  */
 let routeCache: { ip: string | null; at: number } | null = null;
+
+/**
+ * How long a probe result stays good. Re-probing often keeps mDNS IP-change
+ * detection responsive, and on macOS/Linux the spawn is genuinely cheap — but on
+ * Windows it is not: `route.exe` is a console program, so with Windows Terminal
+ * set as the default terminal each probe pops a real window on screen. At the
+ * 3s TTL that was a window every few seconds, for the entire life of the daemon.
+ */
+const ROUTE_CACHE_MS = process.platform === 'win32' ? 30_000 : 3000;
+
 function defaultRouteIp(): string | null {
   const now = Date.now();
-  // Short cache: cheap enough to re-probe often (keeps mDNS IP-change detection
-  // responsive) without spawning `route` on every connect.
-  if (routeCache && now - routeCache.at < 3000) return routeCache.ip;
+  if (routeCache && now - routeCache.at < ROUTE_CACHE_MS) return routeCache.ip;
   let iface: string | null = null;
   let directIp: string | null = null;
   try {
@@ -32,7 +40,13 @@ function defaultRouteIp(): string | null {
       // `route print -4 0.0.0.0` resolves this by emitting the *source interface IP*
       // of each default route directly in the Interface column; pick the lowest
       // metric so VPN/host-only adapters lose to the physical route.
-      const out = execFileSync('route', ['print', '-4', '0.0.0.0'], { timeout: 1000, encoding: 'utf8' });
+      const out = execFileSync('route', ['print', '-4', '0.0.0.0'], {
+        timeout: 1000,
+        encoding: 'utf8',
+        // `shared` cannot import the bridge's proc.ts wrapper, so set this here.
+        // Without it every probe flashes a console window on Windows.
+        windowsHide: true,
+      });
       let bestMetric = Infinity;
       for (const line of out.split('\n')) {
         // Network  Netmask  Gateway  Interface  Metric

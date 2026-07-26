@@ -13,7 +13,7 @@
  * (not outermost) is the right semantics.
  */
 
-import { execSync } from 'node:child_process';
+import { execSync } from '../proc.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 

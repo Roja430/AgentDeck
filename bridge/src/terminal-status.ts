@@ -14,7 +14,7 @@ import { debug } from './logger.js';
 import { writeFileSync, unlinkSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { execSync } from 'node:child_process';
+import { execSync } from './proc.js';
 
 const DYNAMIC_PROFILE_NAME = 'AgentDeck Postit';
 const DYNAMIC_PROFILE_DIR = join(
