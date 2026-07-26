@@ -279,3 +279,35 @@ describe('buildUsageEvent Codex window normalization', () => {
     expect(evt.codexRateLimits!.secondary).toBeUndefined();
   });
 });
+
+describe('buildUsageEvent transcript cost', () => {
+  const bucket = { calls: 1, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, costUsd: 3 };
+  const cost = {
+    today: bucket,
+    last7Days: bucket,
+    last30Days: bucket,
+    cacheHitRatio: 0.9,
+    byModel: [{ model: 'claude-opus-5', costUsd: 3 }],
+    scannedAt: 1,
+  };
+
+  it('carries the summary through to the wire event', () => {
+    const evt = buildUsageEvent(
+      snapshot({ modelName: 'claude-opus-5', billingType: 'subscription' }),
+      usage(), true, null, null, false, null, 'subscription', null, null, false, false, null,
+      cost,
+    ) as UsageEvent;
+
+    expect(evt.transcriptCost).toEqual(cost);
+  });
+
+  it('omits the field when no scan has produced a summary yet', () => {
+    const evt = buildUsageEvent(
+      snapshot({ modelName: 'claude-opus-5', billingType: 'subscription' }),
+      usage(), true, null, null, false, null, 'subscription', null, null, false, false, null,
+      null,
+    ) as UsageEvent;
+
+    expect(evt.transcriptCost).toBeUndefined();
+  });
+});

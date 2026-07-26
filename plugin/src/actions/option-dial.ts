@@ -22,7 +22,7 @@ import type { AgentLink } from '../agent-link.js';
 import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderUsageEncoderBoth, renderUsageEncoderSingle } from '../renderers/usage-gauge.js';
-import { renderUsageSession } from '../renderers/usage-dial-renderer.js';
+import { renderUsageSession, renderUsageCost, renderUsageCache } from '../renderers/usage-dial-renderer.js';
 import { type UsageModeData, updateUsageModeData, getUsageModeData, fireUsageRefresh, buildClaudeUsageEncoder } from '../utility-modes/usage.js';
 import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
 import { dlog } from '../log.js';
@@ -31,8 +31,12 @@ import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
-/** Views the dial rotates through. */
-const USAGE_VIEWS = ['both', '5h', '7d', 'session'] as const;
+/**
+ * Views the dial rotates through. The quota views come first (they answer "can
+ * I keep working"), then the session/cost/cache views (they answer "what has
+ * this cost"). Order is stable — muscle memory beats grouping tweaks.
+ */
+const USAGE_VIEWS = ['both', '5h', '7d', 'session', 'cost', 'cache'] as const;
 type UsageView = typeof USAGE_VIEWS[number];
 
 let currentLayout = '';
@@ -96,8 +100,11 @@ function refreshClaudeUsageDials(): void {
 function renderClaudeUsageView(): string {
   const data = getUsageModeData();
   const view: UsageView = USAGE_VIEWS[viewIndex];
-  // Session view is shared token/cost text — show it regardless of quota note.
+  // These read local transcript history, not the quota API, so they render
+  // whether or not a quota fetch has ever landed.
   if (view === 'session') return renderUsageSession(data);
+  if (view === 'cost') return renderUsageCost(data);
+  if (view === 'cache') return renderUsageCache(data);
   const enc = buildClaudeUsageEncoder(data, hasReceivedData);
   if (view === '5h') return renderUsageEncoderSingle(enc, '5h');
   if (view === '7d') return renderUsageEncoderSingle(enc, '7d');

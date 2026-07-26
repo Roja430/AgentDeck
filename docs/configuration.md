@@ -16,36 +16,24 @@ app uses its container path — see CLAUDE.md → User data dir).
 | `reconnectIntervalMs` | `3000` | Client reconnect backoff. |
 | `voiceLanguage` · `voiceAutoSend` · `whisperModel` | `ko` · `true` · `large-v3-turbo` | Dictation on the Apple app. See [Voice setup](voice-setup.md). |
 | `llm.mlx.endpoint` · `llm.mlx.model` | `http://127.0.0.1:8800` · `null` | Local MLX server used by APME's judge. |
+| `cost.dailyBudgetUsd` | unset | Daily spend tripwire for the COST view. Unset means no budget — see below. |
+| `cost.warnAtPercent` | `80` | Share of the budget at which the COST view turns amber. |
 | `apme.*` | enabled, auto-tuning | Evaluation module — schema and semantics in [APME](apme.md). |
 
-## Stream Deck Property Inspector
+### Daily cost budget
 
-Only the **Launcher encoder (E4)** carries per-instance settings:
-`claudeTarget`, `codexTarget`, `openclawTarget` — the working directory each
-agent opens in.
+The figure the budget is compared against is an **estimate**: the bridge prices
+the token counts in your local Claude Code transcripts at public list prices
+(`bridge/src/transcript-cost.ts`), including the prompt-cache read and write
+rates. It is not a billing feed, and nothing is blocked when the budget trips —
+the COST view on the Claude usage encoder turns amber at `warnAtPercent` and red
+with an `OVER BUDGET` header past the budget.
 
-The keypad has no per-button configuration. Every key is a `session-slot` whose
-content is derived from live session state, and the detail-view quick actions
-(GO ON / REVIEW / COMMIT / CLEAR) are defined by the shared layout engine in
-`shared/src/d200h-layout.ts`, not by user settings. The earlier configurable
-slots 3-6 belonged to the retired mode-dial keypad — see
-[Retired and Experimental Surfaces](retired-surfaces.md).
-
-## Prompt templates
-
-`config/prompt-templates.json` holds labelled prompts:
+There is deliberately **no default budget**. A threshold nobody chose would
+paint the encoder red on an ordinary working day. A zero or negative
+`dailyBudgetUsd`, or a `warnAtPercent` outside 1–100, is treated as unset.
 
 ```json
-{
-  "templates": [
-    { "label": "Fix Bug", "prompt": "Please fix the bug described above" },
-    { "label": "Test", "prompt": "Write tests for the changes made" }
-  ]
-}
+{ "cost": { "dailyBudgetUsd": 20, "warnAtPercent": 75 } }
 ```
 
-The bridge resolves `send_prompt` commands of the form `__template:<index>`
-against this file. **Nothing in the shipped UI emits that command today** — the
-encoder that cycled templates was retired with the multi-mode dials, so editing
-this file currently has no visible effect. It is documented because the file and
-the bridge handler both still exist.

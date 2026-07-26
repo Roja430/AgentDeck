@@ -17,6 +17,7 @@ import { buildDisplayStateEvent } from './display-dim.js';
 import { loadMlxSettings } from '@agentdeck/shared';
 import { probeGateway, checkGatewayHealth } from './gateway-probe.js';
 import { fetchUsageFromApi, hasOAuthToken, getTokenStatus, type ApiUsageData } from './usage-api.js';
+import { getCachedCostSummary, refreshCostSummary } from './transcript-cost.js';
 import { buildEnrichedSessionsList } from './session-aggregator.js';
 import { activityFor } from './session-activity.js';
 import {
@@ -398,6 +399,9 @@ export class BridgeCore {
       this.apiUsagePreAdjusted,
       this.isDaemon,
       readCodexRateLimits(),
+      // Read-only: the scan is refreshed on the usage poll, not here, so the
+      // 5s usage tick never pays for a filesystem walk.
+      getCachedCostSummary(),
     );
   }
 
@@ -424,8 +428,20 @@ export class BridgeCore {
     this.broadcastUsage();
   }
 
+  /**
+   * Rescan local transcripts for the dollar figure, throttled internally.
+   *
+   * Sits on the usage-fetch paths rather than the 5s tick: the scan walks up to
+   * 30 days of transcripts synchronously, so it must run rarely, and its result
+   * is cached for `buildUsage()` to read.
+   */
+  refreshTranscriptCost(): void {
+    refreshCostSummary();
+  }
+
   /** Fetch usage from API and update cache. Returns true if successful. */
   async fetchAndUpdateUsage(): Promise<boolean> {
+    this.refreshTranscriptCost();
     const usage = await fetchUsageFromApi();
     if (usage) {
       this.updateApiUsage(usage);
@@ -578,8 +594,13 @@ export class BridgeCore {
    */
   startApiUsagePolling(intervalMs: number, fetchFn?: () => Promise<ApiUsageData | null>): void {
     const fetch = fetchFn ?? (() => fetchUsageFromApi());
+    // Prime the cost cache now, not on the first tick — otherwise the cost
+    // views on the encoder read "no local history" for a whole poll interval
+    // after startup even though the transcripts were there all along.
+    this.refreshTranscriptCost();
     this.addInterval(setInterval(() => {
       if (!this.hasClients()) return;
+      this.refreshTranscriptCost();
       fetch().then((usage) => {
         if (usage) {
           this.updateApiUsage(usage);

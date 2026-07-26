@@ -2,7 +2,7 @@
  * Usage data types and shared formatting helpers.
  * Used by the dedicated Usage Dial (E3) renderer.
  */
-import type { CodexRateLimits } from '@agentdeck/shared';
+import type { CodexRateLimits, TranscriptCostSummary } from '@agentdeck/shared';
 
 export interface UsageModeData {
   fiveHourPercent?: number;
@@ -26,6 +26,9 @@ export interface UsageModeData {
   // Codex rolling-window quota (primary ≈ 5h, secondary ≈ 7d). Rides alongside
   // the Claude 5h/7d fields so the SD+ Codex usage encoder (E3) can render.
   codexRateLimits?: CodexRateLimits;
+  // Dollar cost derived from local Claude Code transcripts at API list prices.
+  // Feeds the COST and CACHE views on the Claude usage encoder (E2).
+  transcriptCost?: TranscriptCostSummary;
 }
 
 let sharedData: UsageModeData = {};

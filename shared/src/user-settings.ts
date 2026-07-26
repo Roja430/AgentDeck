@@ -1,0 +1,80 @@
+/**
+ * User-tunable settings read from ~/.agentdeck/settings.json.
+ *
+ * Read on a short cache so an edit takes effect without a restart, and falling
+ * back to safe defaults when the file is missing or unparseable — a broken
+ * settings file must never stop the daemon.
+ */
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+/** Fraction of the budget at which the view turns amber. */
+export const DEFAULT_WARN_AT_PERCENT = 80;
+
+// ===== Daily spend budget =====
+//
+// Unset means no budget, which is the default: a budget nobody asked for would
+// paint the encoder red on a normal working day. The figure it is compared
+// against is an *estimate* from local transcripts at list prices (see
+// bridge/src/transcript-cost.ts) — a self-imposed tripwire, not a billing
+// control. Nothing is blocked when it trips.
+
+export interface CostSettings {
+  /** Daily budget in USD, or null when the user has not set one. */
+  dailyBudgetUsd: number | null;
+  /** Percentage of the budget that counts as "warn" (1–100). */
+  warnAtPercent: number;
+}
+
+let cached: { at: number; value: CostSettings } | null = null;
+const CACHE_TTL_MS = 30_000;
+
+function settingsPath(): string {
+  const dir = process.env.AGENTDECK_DATA_DIR || join(homedir(), '.agentdeck');
+  return join(dir, 'settings.json');
+}
+
+/** Positive, finite numbers only — a 0 or negative budget is treated as unset. */
+function positiveNumber(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null;
+}
+
+export function loadCostSettings(): CostSettings {
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.value;
+
+  let dailyBudgetUsd: number | null = null;
+  let warnAtPercent = DEFAULT_WARN_AT_PERCENT;
+  try {
+    const raw = JSON.parse(readFileSync(settingsPath(), 'utf-8')) as Record<string, unknown>;
+    const cost = (raw.cost ?? {}) as Record<string, unknown>;
+    dailyBudgetUsd = positiveNumber(cost.dailyBudgetUsd);
+    const warn = positiveNumber(cost.warnAtPercent);
+    if (warn !== null && warn <= 100) warnAtPercent = warn;
+  } catch {
+    // No settings file, or unreadable — no budget is the correct default.
+  }
+
+  const value: CostSettings = { dailyBudgetUsd, warnAtPercent };
+  cached = { at: Date.now(), value };
+  return value;
+}
+
+/** Drop the cache so the next load re-reads the file (tests, settings edits). */
+export function resetCostSettingsCache(): void {
+  cached = null;
+}
+
+export type BudgetState = 'ok' | 'warn' | 'over';
+
+/** Classify today's spend against the budget. Null budget ⇒ no state at all. */
+export function budgetStateFor(
+  spentUsd: number,
+  settings: CostSettings,
+): BudgetState | undefined {
+  const budget = settings.dailyBudgetUsd;
+  if (budget === null) return undefined;
+  if (spentUsd >= budget) return 'over';
+  if (spentUsd >= budget * (settings.warnAtPercent / 100)) return 'warn';
+  return 'ok';
+}

@@ -21,6 +21,7 @@ export * from './design-tokens.js';
 export * from './svg-renderers/index.js';
 export * from './d200h-layout.js';
 export * from './llm-settings.js';
+export * from './user-settings.js';
 export * from './eval-schema.js';
 export * from './sample.js';
 export * from './pricing.js';

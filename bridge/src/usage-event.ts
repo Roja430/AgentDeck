@@ -4,7 +4,7 @@ import { getTokenStatus } from './usage-api.js';
 import type { OllamaStatus } from './ollama-probe.js';
 import { adjustUsagePercent, isCodexWindowStale } from '@agentdeck/shared';
 import type { CodexAuthStatus } from './codex-auth.js';
-import type { AntigravityStatusInfo, BillingType, CodexRateLimits, CodexRateLimitWindow, ModelCatalogEntry, SubscriptionInfo } from './types.js';
+import type { AntigravityStatusInfo, BillingType, CodexRateLimits, CodexRateLimitWindow, ModelCatalogEntry, SubscriptionInfo, TranscriptCostSummary } from './types.js';
 
 function formatChatGptPlan(planType?: string | null): string | undefined {
   const raw = planType?.trim();
@@ -144,6 +144,7 @@ export function buildUsageEvent(
   preAdjusted?: boolean,
   aggregateSubscriptionQuota?: boolean,
   codexRateLimits?: CodexRateLimits | null,
+  transcriptCost?: TranscriptCostSummary | null,
 ): UsageEvent {
   const subscriptionQuotaApplies = (
     apiUsage?.inferredBillingType === 'subscription'
@@ -205,6 +206,7 @@ export function buildUsageEvent(
     codexSubscriptionActiveUntil: codexAuth?.subscriptionActiveUntil,
     codexLastRefreshAt: codexAuth?.lastRefreshAt,
     codexRateLimits: normalizeCodexRateLimits(codexRateLimits),
+    transcriptCost: transcriptCost ?? undefined,
     modelCatalog: modelCatalog && modelCatalog.length > 0 ? modelCatalog : undefined,
     mlxModels: mlxModels && mlxModels.length > 0 ? mlxModels : undefined,
     subscriptions: buildSubscriptions(codexAuth, apiUsage, billingType, antigravityStatus),

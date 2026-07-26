@@ -285,8 +285,9 @@ connMgr.on('usage_update', (ev: UsageEvent) => {
     usageStale: ev.usageStale,
   };
   // Codex rate limits (primary≈5h, secondary≈7d) ride alongside the Claude
-  // 5h/7d quota so every usage surface can draw both agents.
-  const merged = { ...usageData, codexRateLimits: ev.codexRateLimits };
+  // 5h/7d quota so every usage surface can draw both agents. transcriptCost is
+  // the locally-derived dollar figure the quota percentages can't express.
+  const merged = { ...usageData, codexRateLimits: ev.codexRateLimits, transcriptCost: ev.transcriptCost };
   updateUsageModeData(merged);
   // SD+ encoders: E2 = Claude usage water-tank, E3 = Codex usage water-tank.
   updateClaudeUsageDial(merged);

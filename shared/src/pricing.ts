@@ -25,25 +25,41 @@ export interface ModelPrice {
   inPerMtok: number;
   /** USD per 1M output tokens. */
   outPerMtok: number;
+  /** USD per 1M cache-write tokens. Defaults to `CACHE_WRITE_MULTIPLIER × inPerMtok`. */
+  cacheWritePerMtok?: number;
+  /** USD per 1M cache-read tokens. Defaults to `CACHE_READ_MULTIPLIER × inPerMtok`. */
+  cacheReadPerMtok?: number;
   /** Coarse provider tag for scorecard grouping / "subscription vs marginal". */
   provider?: string;
 }
+
+/**
+ * Prompt-cache write premium. 1.25× is the 5-minute TTL — the default Claude
+ * Code uses. The 1-hour TTL costs 2× instead; override per model if a workload
+ * runs on it, otherwise cache-write cost is understated.
+ */
+export const CACHE_WRITE_MULTIPLIER = 1.25;
+/** Prompt-cache read discount — roughly a tenth of the base input rate. */
+export const CACHE_READ_MULTIPLIER = 0.1;
 
 export const UNKNOWN_PRICE: ModelPrice = { inPerMtok: 0, outPerMtok: 0, provider: 'unknown' };
 const ZERO_LOCAL: ModelPrice = { inPerMtok: 0, outPerMtok: 0, provider: 'local' };
 
 /**
- * Default rates. Anthropic family rates use the long-standing public tier list
- * prices (Opus $15/$75, Sonnet $3/$15, Haiku $1/$5 per Mtok). Confirm/adjust
- * before treating absolute USD figures as authoritative — see file header.
+ * Default rates, in USD per million tokens. Anthropic figures are the public
+ * list prices; Sonnet 5 carries an introductory $2/$10 through 2026-08-31 that
+ * this table does not model (it prices at the standard $3/$15). Confirm before
+ * treating absolute USD figures as authoritative — see file header.
  */
 const DEFAULT_PRICING: Record<string, ModelPrice> = {
   // ── Anthropic ──
-  'claude-fable-5': { inPerMtok: 20, outPerMtok: 100, provider: 'anthropic' },
-  'claude-mythos-5': { inPerMtok: 20, outPerMtok: 100, provider: 'anthropic' },
-  'claude-opus-4-8': { inPerMtok: 15, outPerMtok: 75, provider: 'anthropic' },
-  'claude-opus-4-7': { inPerMtok: 15, outPerMtok: 75, provider: 'anthropic' },
-  'claude-opus-4-6': { inPerMtok: 15, outPerMtok: 75, provider: 'anthropic' },
+  'claude-fable-5': { inPerMtok: 10, outPerMtok: 50, provider: 'anthropic' },
+  'claude-mythos-5': { inPerMtok: 10, outPerMtok: 50, provider: 'anthropic' },
+  'claude-opus-5': { inPerMtok: 5, outPerMtok: 25, provider: 'anthropic' },
+  'claude-opus-4-8': { inPerMtok: 5, outPerMtok: 25, provider: 'anthropic' },
+  'claude-opus-4-7': { inPerMtok: 5, outPerMtok: 25, provider: 'anthropic' },
+  'claude-opus-4-6': { inPerMtok: 5, outPerMtok: 25, provider: 'anthropic' },
+  'claude-sonnet-5': { inPerMtok: 3, outPerMtok: 15, provider: 'anthropic' },
   'claude-sonnet-4-6': { inPerMtok: 3, outPerMtok: 15, provider: 'anthropic' },
   'claude-sonnet-4-5': { inPerMtok: 3, outPerMtok: 15, provider: 'anthropic' },
   'claude-haiku-4-5': { inPerMtok: 1, outPerMtok: 5, provider: 'anthropic' },
@@ -102,5 +118,39 @@ export function providerFor(model: string | null | undefined): string {
 export function priceUsd(model: string | null | undefined, inputTokens: number, outputTokens: number): number {
   const p = priceFor(model);
   const usd = (inputTokens / 1_000_000) * p.inPerMtok + (outputTokens / 1_000_000) * p.outPerMtok;
+  return Math.round(usd * 1_000_000) / 1_000_000;
+}
+
+/** Token counts for one model call, matching the API's `usage` field names. */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
+}
+
+export function cacheWriteRate(p: ModelPrice): number {
+  return p.cacheWritePerMtok ?? p.inPerMtok * CACHE_WRITE_MULTIPLIER;
+}
+
+export function cacheReadRate(p: ModelPrice): number {
+  return p.cacheReadPerMtok ?? p.inPerMtok * CACHE_READ_MULTIPLIER;
+}
+
+/**
+ * Cache-aware cost for a single model call.
+ *
+ * `priceUsd` prices only fresh input and output, which is fine for the APME
+ * per-unit signal but wrong for a Claude Code transcript: those turns are
+ * dominated by cache reads, and charging them at the full input rate
+ * overstates cost by roughly an order of magnitude.
+ */
+export function priceUsdWithCache(model: string | null | undefined, usage: TokenUsage): number {
+  const p = priceFor(model);
+  const usd =
+    (usage.inputTokens / 1_000_000) * p.inPerMtok +
+    (usage.outputTokens / 1_000_000) * p.outPerMtok +
+    ((usage.cacheCreationTokens ?? 0) / 1_000_000) * cacheWriteRate(p) +
+    ((usage.cacheReadTokens ?? 0) / 1_000_000) * cacheReadRate(p);
   return Math.round(usd * 1_000_000) / 1_000_000;
 }

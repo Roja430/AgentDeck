@@ -7,6 +7,20 @@ import { debug } from './logger.js';
 const USAGE_API_URL = 'https://api.anthropic.com/api/oauth/usage';
 const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 const AGENTDECK_DIR = join(homedir(), '.agentdeck');
+
+/** Claude Code config dir — `CLAUDE_CONFIG_DIR` wins, else `~/.claude`. */
+function claudeConfigDir(): string {
+  return process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+}
+
+/**
+ * Credentials file Claude Code writes when it has no OS keychain to use.
+ * This is the only OAuth store on Windows and Linux, and the fallback on
+ * macOS when Keychain access fails. Same `claudeAiOauth` payload either way.
+ */
+function credentialsFile(): string {
+  return join(claudeConfigDir(), '.credentials.json');
+}
 const USAGE_CACHE_FILE = join(AGENTDECK_DIR, 'usage-cache.json');
 
 /** Shared file cache TTL — multiple bridge sessions share one cache file */
@@ -62,35 +76,58 @@ export function getBackoffMs(): number {
   return intervals[Math.min(consecutiveFailures - 1, intervals.length - 1)];
 }
 
-// ===== Keychain =====
+// ===== Credential stores =====
 
 interface OAuthCredentials {
   accessToken: string;
   expiresAt?: number; // epoch ms
 }
 
-function getOAuthCredentials(): OAuthCredentials | null {
-  // The `security` CLI is macOS-only. On other platforms there's no equivalent
-  // path implemented for this OAuth token — return null instead of spawning
-  // a doomed `security` child whose stderr (`'security' is not recognized…`)
-  // would otherwise corrupt the session-bridge TTY.
+/** Both stores hold the same JSON payload — parse it in one place. */
+function parseOAuthPayload(raw: string): OAuthCredentials | null {
+  const creds = JSON.parse(raw);
+  const oauth = creds?.claudeAiOauth;
+  if (!oauth?.accessToken) return null;
+  return {
+    accessToken: oauth.accessToken,
+    expiresAt: typeof oauth.expiresAt === 'number' ? oauth.expiresAt : undefined,
+  };
+}
+
+function readOAuthFromKeychain(): OAuthCredentials | null {
+  // The `security` CLI is macOS-only. Elsewhere, spawning it would emit
+  // `'security' is not recognized…` on stderr and corrupt the session-bridge
+  // TTY, so non-darwin platforms never reach this.
   if (process.platform !== 'darwin') return null;
   try {
     const raw = execSync(
       `security find-generic-password -s "${KEYCHAIN_SERVICE}" -w`,
       { encoding: 'utf-8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] },
     ).trim();
-    const creds = JSON.parse(raw);
-    const oauth = creds?.claudeAiOauth;
-    if (!oauth?.accessToken) return null;
-    return {
-      accessToken: oauth.accessToken,
-      expiresAt: typeof oauth.expiresAt === 'number' ? oauth.expiresAt : undefined,
-    };
+    return parseOAuthPayload(raw);
   } catch {
     debug('UsageAPI', 'Failed to read OAuth token from Keychain');
     return null;
   }
+}
+
+function readOAuthFromFile(): OAuthCredentials | null {
+  const path = credentialsFile();
+  try {
+    return parseOAuthPayload(readFileSync(path, 'utf-8'));
+  } catch (err) {
+    // ENOENT is the normal "logged out / different store" case, not an error.
+    if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      debug('UsageAPI', `Failed to read OAuth token from ${path}: ${err}`);
+    }
+    return null;
+  }
+}
+
+function getOAuthCredentials(): OAuthCredentials | null {
+  // Keychain is authoritative on macOS; every platform can fall back to the
+  // credentials file, which is the *only* store on Windows and Linux.
+  return readOAuthFromKeychain() ?? readOAuthFromFile();
 }
 
 function getOAuthToken(): string | null {
