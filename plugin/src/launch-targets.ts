@@ -7,7 +7,7 @@
  * lives here where it can be covered directly.
  */
 import { OPENCLAW_GATEWAY_PORT } from '@agentdeck/shared';
-import { openApp, openOrFocusBrowserTab } from './utility-modes/macos.js';
+import { openDesktopApp, openWebUrl } from './utility-modes/desktop.js';
 import { dlog } from './log.js';
 
 const TAG = 'Launcher';
@@ -91,11 +91,11 @@ export function rollIndex(index: number, ticks: number, total: number): number {
 
 async function runStep(step: string): Promise<void> {
   if (step.startsWith('url:')) {
-    await openOrFocusBrowserTab(step.slice(4));
+    await openWebUrl(step.slice(4));
     return;
   }
   if (step.startsWith('app:')) {
-    await openApp(step.slice(4));
+    await openDesktopApp(step.slice(4));
     return;
   }
   throw new Error(`Unrecognized launch target: ${step}`);

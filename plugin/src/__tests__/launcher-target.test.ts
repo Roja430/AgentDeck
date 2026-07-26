@@ -8,13 +8,14 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const openApp = vi.fn<(name: string) => Promise<void>>();
-const openOrFocusBrowserTab = vi.fn<(url: string) => Promise<void>>();
+const openDesktopApp = vi.fn<(name: string) => Promise<void>>();
+const openWebUrl = vi.fn<(url: string) => Promise<void>>();
 
-vi.mock('../utility-modes/macos.js', () => ({
-  openApp: (name: string) => openApp(name),
-  openOrFocusBrowserTab: (url: string) => openOrFocusBrowserTab(url),
-  openAgentDeckAppOrGitHub: vi.fn(async () => {}),
+// Mock the platform seam, not a platform: the launcher used to import the macOS
+// module directly, which is exactly why `app:`/`url:` did nothing on Windows.
+vi.mock('../utility-modes/desktop.js', () => ({
+  openDesktopApp: (name: string) => openDesktopApp(name),
+  openWebUrl: (url: string) => openWebUrl(url),
 }));
 
 vi.mock('../log.js', () => ({
@@ -25,47 +26,47 @@ import { runTarget, buildEntries, rollIndex, DEFAULT_TARGETS } from '../launch-t
 
 describe('launcher: runTarget fallback chain', () => {
   beforeEach(() => {
-    openApp.mockReset();
-    openOrFocusBrowserTab.mockReset();
-    openApp.mockResolvedValue(undefined);
-    openOrFocusBrowserTab.mockResolvedValue(undefined);
+    openDesktopApp.mockReset();
+    openWebUrl.mockReset();
+    openDesktopApp.mockResolvedValue(undefined);
+    openWebUrl.mockResolvedValue(undefined);
   });
 
   it('opens a desktop app for an app: target', async () => {
     await runTarget('app:Claude');
-    expect(openApp).toHaveBeenCalledWith('Claude');
-    expect(openOrFocusBrowserTab).not.toHaveBeenCalled();
+    expect(openDesktopApp).toHaveBeenCalledWith('Claude');
+    expect(openWebUrl).not.toHaveBeenCalled();
   });
 
   it('opens a browser tab for a url: target', async () => {
     await runTarget('url:https://example.com');
-    expect(openOrFocusBrowserTab).toHaveBeenCalledWith('https://example.com');
-    expect(openApp).not.toHaveBeenCalled();
+    expect(openWebUrl).toHaveBeenCalledWith('https://example.com');
+    expect(openDesktopApp).not.toHaveBeenCalled();
   });
 
   it('stops at the first step that succeeds', async () => {
     await runTarget('app:Codex|url:https://chatgpt.com/codex/cloud');
-    expect(openApp).toHaveBeenCalledWith('Codex');
-    expect(openOrFocusBrowserTab).not.toHaveBeenCalled();
+    expect(openDesktopApp).toHaveBeenCalledWith('Codex');
+    expect(openWebUrl).not.toHaveBeenCalled();
   });
 
   it('falls through to the URL when the app is not installed', async () => {
-    openApp.mockRejectedValue(new Error('Cannot open "Codex"'));
+    openDesktopApp.mockRejectedValue(new Error('Cannot open "Codex"'));
     await runTarget('app:Codex|url:https://chatgpt.com/codex/cloud');
-    expect(openApp).toHaveBeenCalledWith('Codex');
-    expect(openOrFocusBrowserTab).toHaveBeenCalledWith('https://chatgpt.com/codex/cloud');
+    expect(openDesktopApp).toHaveBeenCalledWith('Codex');
+    expect(openWebUrl).toHaveBeenCalledWith('https://chatgpt.com/codex/cloud');
   });
 
   it('rejects when every step fails, so the dial can showAlert', async () => {
-    openApp.mockRejectedValue(new Error('no app'));
-    openOrFocusBrowserTab.mockRejectedValue(new Error('no browser'));
+    openDesktopApp.mockRejectedValue(new Error('no app'));
+    openWebUrl.mockRejectedValue(new Error('no browser'));
     await expect(runTarget('app:Codex|url:https://x.test')).rejects.toThrow('no browser');
   });
 
   it('rejects an unrecognized scheme rather than guessing', async () => {
     await expect(runTarget('Codex')).rejects.toThrow(/Unrecognized launch target/);
-    expect(openApp).not.toHaveBeenCalled();
-    expect(openOrFocusBrowserTab).not.toHaveBeenCalled();
+    expect(openDesktopApp).not.toHaveBeenCalled();
+    expect(openWebUrl).not.toHaveBeenCalled();
   });
 
   it('rejects an empty target', async () => {
@@ -73,23 +74,23 @@ describe('launcher: runTarget fallback chain', () => {
   });
 
   it('tolerates whitespace around chain steps', async () => {
-    openApp.mockRejectedValue(new Error('no app'));
+    openDesktopApp.mockRejectedValue(new Error('no app'));
     await runTarget(' app:Codex | url:https://x.test ');
-    expect(openOrFocusBrowserTab).toHaveBeenCalledWith('https://x.test');
+    expect(openWebUrl).toHaveBeenCalledWith('https://x.test');
   });
 });
 
 describe('launcher: shipped defaults', () => {
   it('every default target parses into runnable steps', async () => {
     for (const [agent, target] of Object.entries(DEFAULT_TARGETS)) {
-      openApp.mockReset();
-      openOrFocusBrowserTab.mockReset();
-      openApp.mockResolvedValue(undefined);
-      openOrFocusBrowserTab.mockResolvedValue(undefined);
+      openDesktopApp.mockReset();
+      openWebUrl.mockReset();
+      openDesktopApp.mockResolvedValue(undefined);
+      openWebUrl.mockResolvedValue(undefined);
 
       await expect(runTarget(target), `default for ${agent}`).resolves.toBeUndefined();
       expect(
-        openApp.mock.calls.length + openOrFocusBrowserTab.mock.calls.length,
+        openDesktopApp.mock.calls.length + openWebUrl.mock.calls.length,
         `default for ${agent} invoked nothing`,
       ).toBeGreaterThan(0);
     }
@@ -98,13 +99,13 @@ describe('launcher: shipped defaults', () => {
   it('falls back to a URL for both agents that have a desktop app', async () => {
     // Claude and Codex ship apps; a user without them must still land somewhere.
     for (const agent of ['claude', 'codex']) {
-      openApp.mockReset();
-      openOrFocusBrowserTab.mockReset();
-      openApp.mockRejectedValue(new Error('not installed'));
-      openOrFocusBrowserTab.mockResolvedValue(undefined);
+      openDesktopApp.mockReset();
+      openWebUrl.mockReset();
+      openDesktopApp.mockRejectedValue(new Error('not installed'));
+      openWebUrl.mockResolvedValue(undefined);
 
       await runTarget(DEFAULT_TARGETS[agent]);
-      expect(openOrFocusBrowserTab, `${agent} has no URL fallback`).toHaveBeenCalled();
+      expect(openWebUrl, `${agent} has no URL fallback`).toHaveBeenCalled();
     }
   });
 });
