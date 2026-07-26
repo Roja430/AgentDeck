@@ -81,4 +81,25 @@ describe('listRecentProjects', () => {
   it('returns nothing when there is no history directory', () => {
     expect(listRecentProjects({ dir: join(root, 'nope'), now: NOW })).toEqual([]);
   });
+
+  describe('home directory', () => {
+    // Running `claude` without cd-ing anywhere records the home directory as a
+    // project. It is not one, and being recent it outranks real work on a list
+    // capped at five.
+    it('is left out of the list', () => {
+      transcript('home', 's.jsonl', '/home/me', NOW);
+      transcript('proj', 's.jsonl', '/work/real', NOW - DAY);
+      expect(scan({ home: '/home/me' }).map((p) => p.path)).toEqual(['/work/real']);
+    });
+
+    it('is matched despite a trailing separator', () => {
+      transcript('home', 's.jsonl', '/home/me/', NOW);
+      expect(scan({ home: '/home/me' })).toEqual([]);
+    });
+
+    it('still keeps directories nested under home', () => {
+      transcript('nested', 's.jsonl', '/home/me/code/app', NOW);
+      expect(scan({ home: '/home/me' }).map((p) => p.path)).toEqual(['/home/me/code/app']);
+    });
+  });
 });

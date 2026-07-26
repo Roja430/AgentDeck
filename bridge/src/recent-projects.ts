@@ -36,11 +36,27 @@ export interface RecentProjectOptions {
   windowDays?: number;
   /** Override the projects directory (tests). */
   dir?: string;
+  /** Override the home directory, which is filtered out (tests). */
+  home?: string;
   /** Override "now" (tests). */
   now?: number;
 }
 
 const DEFAULT_LIMIT = 5;
+
+/**
+ * The home directory is not a project. It appears whenever Claude Code was run
+ * without cd-ing anywhere first, and because that tends to be recent it sorts
+ * near the top and pushes a real project off a list capped at five. Starting a
+ * new session in `~` is never what picking an entry on the dial meant.
+ */
+function isHomeDir(path: string, home: string): boolean {
+  const strip = (p: string) => p.replace(/[\\/]+$/, '');
+  const a = strip(path);
+  const b = strip(home);
+  // Windows paths are case-insensitive; POSIX ones are not.
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
 
 /**
  * Read only the tail of a transcript: `cwd` is identical on every record, so
@@ -76,6 +92,7 @@ export function listRecentProjects(opts: RecentProjectOptions = {}): RecentProje
   const now = opts.now ?? Date.now();
   const cutoff = now - (opts.windowDays ?? 30) * 86_400_000;
   const root = opts.dir ?? projectsDir();
+  const home = opts.home ?? homedir();
 
   const byPath = new Map<string, RecentProject>();
 
@@ -107,6 +124,7 @@ export function listRecentProjects(opts: RecentProjectOptions = {}): RecentProje
 
       const { cwd, ts } = readTail(full);
       if (!cwd) continue;
+      if (isHomeDir(cwd, home)) continue;
       // Prefer the record timestamp; fall back to mtime when the tail had none.
       const lastActiveAt = ts ?? mtime;
       const existing = byPath.get(cwd);
