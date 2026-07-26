@@ -1,9 +1,10 @@
 /**
  * User-tunable settings read from ~/.agentdeck/settings.json.
  *
- * Read on a short cache so an edit takes effect without a restart, and falling
- * back to safe defaults when the file is missing or unparseable — a broken
- * settings file must never stop the daemon.
+ * Covers the `cost.*` spend budget and the `notifications.*` attention toast.
+ * Both are read on a short cache so an edit takes effect without a restart, and
+ * both fall back to safe defaults when the file is missing or unparseable —
+ * a broken settings file must never stop the daemon.
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -63,6 +64,51 @@ export function loadCostSettings(): CostSettings {
 /** Drop the cache so the next load re-reads the file (tests, settings edits). */
 export function resetCostSettingsCache(): void {
   cached = null;
+}
+
+// ===== Desktop notifications =====
+
+export interface NotificationSettings {
+  /** Raise a desktop notification when a session starts waiting on you. */
+  attention: boolean;
+  /** Minimum gap between notices for the same session. */
+  repeatWindowMs: number;
+}
+
+/** Long enough that answering and re-prompting doesn't double-notify. */
+export const DEFAULT_NOTIFY_REPEAT_WINDOW_MS = 60_000;
+
+let notifyCached: { at: number; value: NotificationSettings } | null = null;
+
+/**
+ * Source: ~/.agentdeck/settings.json → `notifications.{attention,repeatWindowMs}`.
+ *
+ * Defaults to on: "tell me when the agent needs me" is the point of the
+ * feature, and it only fires on the AWAITING states, never on ordinary turn
+ * ends. Set `notifications.attention` to false to silence it.
+ */
+export function loadNotificationSettings(): NotificationSettings {
+  if (notifyCached && Date.now() - notifyCached.at < CACHE_TTL_MS) return notifyCached.value;
+
+  let attention = true;
+  let repeatWindowMs = DEFAULT_NOTIFY_REPEAT_WINDOW_MS;
+  try {
+    const raw = JSON.parse(readFileSync(settingsPath(), 'utf-8')) as Record<string, unknown>;
+    const n = (raw.notifications ?? {}) as Record<string, unknown>;
+    if (typeof n.attention === 'boolean') attention = n.attention;
+    const window = positiveNumber(n.repeatWindowMs);
+    if (window !== null) repeatWindowMs = window;
+  } catch {
+    // No settings file — the defaults above are correct.
+  }
+
+  const value: NotificationSettings = { attention, repeatWindowMs };
+  notifyCached = { at: Date.now(), value };
+  return value;
+}
+
+export function resetNotificationSettingsCache(): void {
+  notifyCached = null;
 }
 
 export type BudgetState = 'ok' | 'warn' | 'over';

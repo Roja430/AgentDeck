@@ -1,4 +1,5 @@
 import { listActive as listActiveSessions, type SessionEntry } from './session-registry.js';
+import { clearAttention, notifyAttention } from './desktop-notify.js';
 import type { AgentType } from './types.js';
 import { sortSessions, type PromptOption } from '@agentdeck/shared';
 
@@ -53,9 +54,40 @@ const pushStateCache = new Map<string, { state: string; modelName?: string; effo
 
 /** Update push-channel cache (called from daemon-server when session_push_state arrives) */
 export function updatePushState(sessionId: string, state: string, modelName?: string, effortLevel?: string): void {
+  // Read the previous state before overwriting: the notification must fire on
+  // the *transition* into awaiting, not on every push that repeats it.
+  const previous = pushStateCache.get(sessionId)?.state;
   pushStateCache.set(sessionId, { state, modelName, effortLevel, updatedAt: Date.now() });
   // Also update sibling cache so it stays consistent
   siblingStateCache.set(sessionId, { state, modelName, effortLevel, updatedAt: Date.now() });
+  announceAttention(sessionId, previous, state);
+}
+
+/** The three states that mean the agent has stopped and is waiting on a human. */
+function isAwaiting(state: string | undefined): boolean {
+  return state === 'awaiting_permission' || state === 'awaiting_option' || state === 'awaiting_diff';
+}
+
+const AWAITING_LABEL: Record<string, string> = {
+  awaiting_permission: 'needs permission',
+  awaiting_option: 'is waiting on an answer',
+  awaiting_diff: 'has a diff to review',
+};
+
+function announceAttention(sessionId: string, previous: string | undefined, next: string): void {
+  if (!isAwaiting(next)) {
+    // Back to work (or gone) — let the session notify again next time.
+    if (isAwaiting(previous)) clearAttention(sessionId);
+    return;
+  }
+  if (previous === next) return; // same prompt, repeated push
+
+  const project = listActiveSessions().find((s) => s.id === sessionId)?.projectName;
+  notifyAttention({
+    sessionId,
+    title: 'AgentDeck',
+    body: `${project || sessionId} ${AWAITING_LABEL[next] ?? 'needs you'}`,
+  });
 }
 
 /** Check if push-channel has fresh state (< 30s old) */
