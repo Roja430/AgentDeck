@@ -54,15 +54,15 @@ export function renderUtilityGeneric(data: UtilityRenderData): string {
     const groupX = Math.round(100 - (iconPx + gap + valPx) / 2);
     const iconX = groupX + 10;               // center of icon slot
     const valueX = groupX + iconPx + gap;    // start of value text
-    valueSvg = `<text x="${iconX}" y="${valueY}" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" fill="${barColor}" opacity="0.7">${icon}</text>`
-      + `<text x="${valueX}" y="${valueY}" font-family="Arial,sans-serif" font-size="${valFontSize}" font-weight="bold" fill="${barColor}" opacity="0.9">${escapeXml(valStr)}</text>`;
+    valueSvg = `<text x="${iconX}" y="${valueY}" text-anchor="middle" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="20" fill="${barColor}" opacity="0.7">${icon}</text>`
+      + `<text x="${valueX}" y="${valueY}" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="${valFontSize}" font-weight="bold" fill="${barColor}" opacity="0.9">${escapeXml(valStr)}</text>`;
   } else {
-    valueSvg = `<text x="100" y="${valueY}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${valFontSize}" font-weight="bold" fill="${barColor}" opacity="0.9">${escapeXml(valStr)}</text>`;
+    valueSvg = `<text x="100" y="${valueY}" text-anchor="middle" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="${valFontSize}" font-weight="bold" fill="${barColor}" opacity="0.9">${escapeXml(valStr)}</text>`;
   }
 
   return svgWrap(`
     <rect width="${W}" height="${H}" fill="#0f172a"/>
-    <text x="100" y="18" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="#94a3b8">${escapeXml(title)}</text>
+    <text x="100" y="18" text-anchor="middle" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="bold" fill="#94a3b8">${escapeXml(title)}</text>
     ${valueSvg}
     <rect x="10" y="90" width="180" height="2" rx="1" fill="#1e293b"/>
     <rect x="10" y="90" width="${Math.max(2, barW)}" height="2" rx="1" fill="${barColor}" opacity="0.4"/>

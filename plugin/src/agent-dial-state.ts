@@ -10,6 +10,11 @@
  *
  * The tap is the one interaction here with no visual affordance, so the page
  * name is rendered as a heading rather than left implicit.
+ *
+ * Labels are Japanese, matching the deck's owner. They are hardcoded rather
+ * than localised: the plugin renderers have no i18n layer, and inventing one
+ * for six strings would be the larger change. This needs revisiting before the
+ * dial goes anywhere but this fork.
  */
 import type { ModelCatalogEntry } from '@agentdeck/shared';
 import { PermissionMode } from '@agentdeck/shared';
@@ -32,9 +37,9 @@ export interface AgentDialEntry {
  * that to be a one-flick decision. They stay reachable from the terminal.
  */
 export const OFFERED_MODES: { label: string; value: string }[] = [
-  { label: 'Manual', value: PermissionMode.DEFAULT },
-  { label: 'Accept Edits', value: PermissionMode.ACCEPT_EDITS },
-  { label: 'Plan', value: PermissionMode.PLAN },
+  { label: '手動', value: PermissionMode.DEFAULT },
+  { label: '編集を許可', value: PermissionMode.ACCEPT_EDITS },
+  { label: '計画', value: PermissionMode.PLAN },
 ];
 
 /** How many `switch_mode` nudges to try before giving up on reaching a mode. */
@@ -50,7 +55,7 @@ export const MAX_MODE_STEPS = OFFERED_MODES.length + 2;
  * which is enough to switch tiers from the deck.
  */
 export const FALLBACK_MODELS: { key: string; name: string }[] = [
-  { key: 'default', name: 'Default' },
+  { key: 'default', name: '既定' },
   { key: 'haiku', name: 'Haiku' },
   { key: 'sonnet', name: 'Sonnet' },
   { key: 'opus', name: 'Opus' },

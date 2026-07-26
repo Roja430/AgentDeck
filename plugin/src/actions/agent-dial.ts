@@ -149,7 +149,7 @@ function buildCanvas(): string {
   const entries = state.getEntries();
   // The page name leads, because tapping to swap pages is the one interaction
   // on this dial with no visual affordance of its own.
-  const title = state.getPage() === 'model' ? 'MODEL ⇄' : 'MODE ⇄';
+  const title = state.getPage() === 'model' ? 'モデル ⇄' : 'モード ⇄';
 
   if (!entry || !hasSession) {
     // The roll is still there — this says the press has nowhere to go, which is
@@ -157,7 +157,7 @@ function buildCanvas(): string {
     return renderUtilityGeneric({
       title,
       icon: '○',
-      value: entry ? `${entry.label} · no focus` : 'No session',
+      value: entry ? `${entry.label}・未選択` : 'セッションなし',
       indicator: { value: 0, bar_fill_c: '#64748b' },
     });
   }

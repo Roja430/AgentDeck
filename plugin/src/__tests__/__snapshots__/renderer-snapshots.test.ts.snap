@@ -108,8 +108,8 @@ exports[`usage-gauge snapshots > renderUsageGauge unknown draws a dim tile + das
 exports[`utility-renderer snapshots > renderUtilityGeneric muted (text-only value) 1`] = `
 "<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
     <rect width="200" height="100" fill="#0f172a"/>
-    <text x="100" y="18" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="#94a3b8">VOL</text>
-    <text x="100" y="62" text-anchor="middle" font-family="Arial,sans-serif" font-size="18" font-weight="bold" fill="#64748b" opacity="0.9">Muted</text>
+    <text x="100" y="18" text-anchor="middle" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="bold" fill="#94a3b8">VOL</text>
+    <text x="100" y="62" text-anchor="middle" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="18" font-weight="bold" fill="#64748b" opacity="0.9">Muted</text>
     <rect x="10" y="90" width="180" height="2" rx="1" fill="#1e293b"/>
     <rect x="10" y="90" width="2" height="2" rx="1" fill="#64748b" opacity="0.4"/>
   </svg>"
@@ -118,8 +118,8 @@ exports[`utility-renderer snapshots > renderUtilityGeneric muted (text-only valu
 exports[`utility-renderer snapshots > renderUtilityGeneric with icon 1`] = `
 "<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
     <rect width="200" height="100" fill="#0f172a"/>
-    <text x="100" y="18" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="bold" fill="#94a3b8">VOL</text>
-    <text x="79" y="62" text-anchor="middle" font-family="Arial,sans-serif" font-size="20" fill="#22c55e" opacity="0.7">🔊</text><text x="93" y="62" font-family="Arial,sans-serif" font-size="24" font-weight="bold" fill="#22c55e" opacity="0.9">72%</text>
+    <text x="100" y="18" text-anchor="middle" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="14" font-weight="bold" fill="#94a3b8">VOL</text>
+    <text x="79" y="62" text-anchor="middle" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="20" fill="#22c55e" opacity="0.7">🔊</text><text x="93" y="62" font-family="Arial,'Yu Gothic UI',Meiryo,sans-serif" font-size="24" font-weight="bold" fill="#22c55e" opacity="0.9">72%</text>
     <rect x="10" y="90" width="180" height="2" rx="1" fill="#1e293b"/>
     <rect x="10" y="90" width="130" height="2" rx="1" fill="#22c55e" opacity="0.4"/>
   </svg>"
