@@ -99,12 +99,35 @@
       "Encoder": {
         "layout": "layouts/encoder-layout.json",
         "TriggerDescription": {
-          "Rotate": "Adjust reasoning effort",
-          "Push": "Confirm",
+          "Rotate": "Choose reasoning effort",
+          "Push": "Apply",
           "Touch": "Cancel"
         }
       },
       "UUID": "bound.serendipity.agentdeck.effort-dial"
+    },
+    {
+      "Icon": "static/imgs/option",
+      "Name": "Model & Mode",
+      "States": [
+        {
+          "Image": "static/imgs/keys/option",
+          "Name": "Model & Mode",
+          "ShowTitle": false
+        }
+      ],
+      "Controllers": [
+        "Encoder"
+      ],
+      "Encoder": {
+        "layout": "layouts/encoder-layout.json",
+        "TriggerDescription": {
+          "Rotate": "Choose a model or permission mode",
+          "Push": "Apply the selection",
+          "Touch": ""
+        }
+      },
+      "UUID": "bound.serendipity.agentdeck.agent-dial"
     },
     {
       "Icon": "static/imgs/session",

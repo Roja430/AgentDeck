@@ -28,8 +28,28 @@ UUIDs are immutable post-distribution, so several no longer describe their role.
 | `option-dial` | Claude Usage | E2 — Claude quota gauge + cost views |
 | `iterm-dial` | Codex Usage | E3 — Codex quota gauge |
 | `launcher` | Launcher | E4 — open an agent, or start a new session in a recent project |
-| `effort-dial` | Reasoning Effort | unassigned — drives the `/model` effort picker |
+| `effort-dial` | Reasoning Effort | unassigned — rotate to choose a level, press to apply via `/effort` |
+| `agent-dial` | Model & Mode | unassigned — one roll of models then permission modes |
 | `session-dial` | Session Navigator | unassigned — rotate between sessions, press to focus |
+
+### Steering dials: how they reach the agent
+
+Both steering dials stage their choice locally and send nothing until the press,
+so turning one while reading the LCD cannot disturb a running session. The press
+types into the prompt, so it is refused unless the session is idle.
+
+`effort-dial` and the model half of `agent-dial` apply in one command —
+`/effort <level>` and `/model <name>`. The effort dial used to drive the
+`/model` picker with arrow keys because that was where effort lived when it was
+written; a dedicated `/effort` exists now, and a command cannot miss the way a
+keystroke aimed at a TUI can.
+
+Permission mode has no such command — Shift+Tab cycles and that is all — so
+`agent-dial` nudges and watches `permissionMode` until the agent reports the
+target, bounded and verified rather than counting an assumed cycle order (which
+modes are in the rotation depends on the user's settings). `dontAsk` and
+`bypassPermissions` are deliberately not offered: a dial is too easy to nudge
+past a detent for blanket approval to be a one-flick decision.
 
 ### Launcher: new task
 

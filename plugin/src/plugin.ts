@@ -40,6 +40,12 @@ import {
   refreshSessionDial,
 } from './actions/session-dial.js';
 import {
+  AgentDialAction,
+  initAgentDial,
+  updateAgentDial,
+  refreshAgentDial,
+} from './actions/agent-dial.js';
+import {
   LauncherDialAction,
   initLauncherDial,
   updateLauncherDialState,
@@ -129,6 +135,7 @@ const connMgr = new ConnectionManager();
 // ---- Initialize action modules ----
 initOptionDial(connMgr);
 initEffortDial(sendFocusedSessionCommand);
+initAgentDial(sendFocusedSessionCommand);
 initSessionDial({
   focus: (sessionId) => {
     // Same path the keypad takes, so the dial and the keys cannot disagree
@@ -260,6 +267,10 @@ connMgr.on('state_update', (ev: StateUpdateEvent) => {
   // Reasoning-effort dial mirrors the focused session: the level itself, the
   // model it belongs to, and the state that decides whether it may steer.
   updateEffortDial(ev.state, ev.modelName, ev.effortLevel);
+
+  // Agent-control dial: the catalog supplies the model roll, permissionMode is
+  // the only acknowledgement a Shift+Tab ever gets.
+  updateAgentDial(ev.state, ev.modelName, ev.permissionMode, ev.modelCatalog);
 
   // Track proxied agent type from daemon (state_update.agentType overrides connection-level detection)
   if (ev.agentType === 'openclaw' || ev.agentType === 'claude-code' || ev.agentType === 'codex-cli' || ev.agentType === 'codex-app' || ev.agentType === 'opencode' || ev.agentType === 'antigravity') {
@@ -508,6 +519,7 @@ function broadcastStateUpdate(): void {
   updateUtilityDialState(currentState);
   refreshClaudeUsageDial();
   refreshEffortDial();
+  refreshAgentDial();
   refreshSessionDial();
   updateUsageDialState();
   // Keypad slots too — on display wake nothing else will repaint them, since
@@ -522,6 +534,7 @@ streamDeck.actions.registerAction(new UtilityDialAction());
 streamDeck.actions.registerAction(new UsageDialAction());
 streamDeck.actions.registerAction(new EffortDialAction());
 streamDeck.actions.registerAction(new SessionDialAction());
+streamDeck.actions.registerAction(new AgentDialAction());
 streamDeck.actions.registerAction(new SessionSlotButtonAction());
 
 // ---- Slot Map Reporting (Phase A7) ----

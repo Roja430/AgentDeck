@@ -20,6 +20,7 @@ export const encoderRegistry = {
   launcherIds: [] as string[],  // Launcher dial (E4)
   effortIds: [] as string[],       // Reasoning-effort dial (unassigned by default)
   sessionNavIds: [] as string[],   // Session navigation dial (unassigned by default)
+  agentIds: [] as string[],        // Model + permission-mode dial (unassigned by default)
 };
 
 // ─── Daemon connection state (shared with all four encoder dials) ────────
