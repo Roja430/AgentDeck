@@ -1,14 +1,16 @@
 /**
  * Reasoning-effort dial (Stream Deck+).
  *
- * The Codex Micro control this mirrors: rotate to adjust how hard the agent
- * thinks, press to confirm. Claude Code puts effort inside the `/model` picker,
- * so rotation nudges that picker with ← / →, the press confirms with Enter, and
- * a touch tap backs out with Esc.
+ * The Codex Micro control this mirrors: rotate to choose how hard the agent
+ * thinks, press to apply. Claude Code exposes `/effort <level>`, so rotation is
+ * local — nothing reaches the agent until the press, which sends one command.
  *
- * Rotation is inert unless the focused session is idle: the keystrokes land in
- * the live PTY, and an Esc sent mid-turn would interrupt the agent rather than
- * close a picker.
+ * It used to drive the `/model` picker with ← / → because that was where effort
+ * lived when the dial was written. Rotating therefore typed into the live PTY,
+ * and a mistimed Esc interrupted the agent instead of closing a picker.
+ *
+ * The press is still gated on idle: `/effort` is typed into the prompt, and
+ * mid-turn it would be swallowed by the running agent.
  */
 import streamDeck, {
   action,
@@ -26,7 +28,7 @@ import { renderEffortDial } from '../renderers/effort-dial-renderer.js';
 import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
 import { dlog } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
-import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
+import { EFFORT_LEVELS, indexOfLevel, stepLevel } from '../effort-levels.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
@@ -41,10 +43,12 @@ let send: CommandSender | null = null;
 let effortLevel: string | undefined;
 /** Model name, shown as context for the level. */
 let modelName: string | undefined;
-/** Focused session state — gates whether keystrokes may be sent. */
+/** Focused session state — gates whether a command may be sent. */
 let sessionState: State | undefined;
-/** True between the first nudge and a commit/cancel, for the "adjusting" hint. */
+/** True while the cursor sits somewhere other than the reported level. */
 let adjusting = false;
+/** Cursor into EFFORT_LEVELS. Follows the agent until the user turns the dial. */
+let cursor = 0;
 
 export function initEffortDial(sender: CommandSender): void {
   send = sender;
@@ -59,8 +63,12 @@ export function updateEffortDial(
   sessionState = state;
   modelName = model;
   effortLevel = effort;
-  // Leaving idle means the picker cannot still be open.
-  if (state !== State.IDLE) adjusting = false;
+  // Once the agent reports the level the cursor was aiming at, the pending
+  // change has landed and the cursor goes back to following the agent.
+  if (!adjusting || EFFORT_LEVELS[cursor] === effort?.toLowerCase()) {
+    cursor = indexOfLevel(effort);
+    adjusting = false;
+  }
   refreshEffortDials();
 }
 
@@ -75,7 +83,14 @@ function refreshEffortDials(): void {
   const feedback = {
     canvas: svgToDataUrl(
       isDaemonConnected()
-        ? renderEffortDial({ effortLevel, modelName, idle: sessionState === State.IDLE, adjusting })
+        ? renderEffortDial({
+          // Show where the cursor is, not what the agent last reported — the
+          // dial has to answer "what will pressing do" while being turned.
+          effortLevel: EFFORT_LEVELS[cursor],
+          modelName,
+          idle: sessionState === State.IDLE,
+          adjusting,
+        })
         : renderOfflineTouchStrip(1),
     ),
   };
@@ -88,7 +103,7 @@ function refreshEffortDials(): void {
   }
 }
 
-/** Rotation and press only make sense while the agent is waiting for input. */
+/** The press types into the prompt, so it only makes sense while idle. */
 function canSteer(): boolean {
   return isDaemonConnected() && sessionState === State.IDLE;
 }
@@ -106,36 +121,34 @@ export class EffortDialAction extends SingletonAction {
   }
 
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
+    if (!isDaemonConnected()) return;
+    // Local only — the level is applied by the press, so turning the dial while
+    // reading the LCD cannot disturb a session.
+    const next = stepLevel(cursor, ev.payload.ticks);
+    if (next === cursor) return;
+    cursor = next;
+    adjusting = EFFORT_LEVELS[cursor] !== effortLevel?.toLowerCase();
+    dlog('EffortDial', `rotate → ${EFFORT_LEVELS[cursor]}`);
+    refreshEffortDials();
+  }
+
+  override async onDialDown(ev: DialDownEvent): Promise<void> {
+    if (!isDaemonConnected()) return;
     if (!canSteer()) {
-      dlog('EffortDial', `rotate ignored — state=${sessionState ?? 'unknown'}`);
+      dlog('EffortDial', `press ignored — state=${sessionState ?? 'unknown'}`);
+      void (ev.action as any).showAlert?.().catch(() => {});
       return;
     }
-    const action = ev.payload.ticks >= 0 ? 'increase' : 'decrease';
-    adjusting = true;
-    send?.({ type: 'set_effort', action });
-    dlog('EffortDial', `rotate → ${action}`);
+    if (!adjusting) return; // already at this level; nothing to send
+    send?.({ type: 'set_effort', action: 'set', level: EFFORT_LEVELS[cursor] });
+    dlog('EffortDial', `press → /effort ${EFFORT_LEVELS[cursor]}`);
     refreshEffortDials();
   }
 
-  override async onDialDown(_ev: DialDownEvent): Promise<void> {
-    if (!isDaemonConnected()) {
-      void openAgentDeckAppOrGitHub().catch(() => {});
-      return;
-    }
-    if (!adjusting) return; // nothing staged; don't send a stray Enter
-    send?.({ type: 'set_effort', action: 'commit' });
-    adjusting = false;
-    dlog('EffortDial', 'push → commit');
-    refreshEffortDials();
-  }
-
+  /** Abandon a staged level and snap back to what the agent reports. */
   override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
-    if (!isDaemonConnected()) {
-      void openAgentDeckAppOrGitHub().catch(() => {});
-      return;
-    }
-    if (!adjusting) return;
-    send?.({ type: 'set_effort', action: 'cancel' });
+    if (!isDaemonConnected() || !adjusting) return;
+    cursor = indexOfLevel(effortLevel);
     adjusting = false;
     dlog('EffortDial', 'tap → cancel');
     refreshEffortDials();
