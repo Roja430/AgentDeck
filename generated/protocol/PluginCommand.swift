@@ -32,6 +32,14 @@ import Foundation
 /// inheriting it would start every session in the wrong place. Candidates come from
 /// `recentProjects` on `sessions_list`.
 ///
+/// Branch a running session into a new one — the Codex Micro "fork".
+///
+/// Claude Code expresses this as `claude --resume <id> --fork-session`, which keeps the
+/// conversation so far and gives the branch its own id. Only observed sessions can be
+/// forked: their AgentDeck id embeds Claude's own session id (`observed:claude:<uuid>`),
+/// whereas a managed session's id is one AgentDeck generated and does not identify anything
+/// to resume.
+///
 /// Session-scoped command — daemon forwards the inner command to the specified session's
 /// bridge. Enables direct control of a specific session from any client (MenuBarExtra,
 /// Dashboard, etc.)
@@ -60,6 +68,7 @@ struct ADPluginCommand: Codable, Equatable {
     var type: ADType
     var value: ADValue?
     var index: Double?
+    /// AgentDeck session id — the daemon resolves the Claude id and the cwd.
     var sessionId: String?
     var direction: ADDirection?
     var text: String?
@@ -380,6 +389,7 @@ enum ADType: String, Codable, Equatable {
     case esp32OtaAck = "esp32_ota_ack"
     case esp32OtaError = "esp32_ota_error"
     case focusSession = "focus_session"
+    case forkSession = "fork_session"
     case interrupt = "interrupt"
     case navigateOption = "navigate_option"
     case newSession = "new_session"

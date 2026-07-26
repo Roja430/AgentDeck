@@ -45,6 +45,14 @@ private val klaxon = Klaxon()
  * inheriting it would start every session in the wrong place. Candidates come from
  * `recentProjects` on `sessions_list`.
  *
+ * Branch a running session into a new one — the Codex Micro "fork".
+ *
+ * Claude Code expresses this as `claude --resume <id> --fork-session`, which keeps the
+ * conversation so far and gives the branch its own id. Only observed sessions can be
+ * forked: their AgentDeck id embeds Claude's own session id (`observed:claude:<uuid>`),
+ * whereas a managed session's id is one AgentDeck generated and does not identify anything
+ * to resume.
+ *
  * Session-scoped command — daemon forwards the inner command to the specified session's
  * bridge. Enables direct control of a specific session from any client (MenuBarExtra,
  * Dashboard, etc.)
@@ -74,6 +82,9 @@ data class PluginCommand (
     val value: Value? = null,
     val index: Double? = null,
 
+    /**
+     * AgentDeck session id — the daemon resolves the Claude id and the cwd.
+     */
     @Json(name = "sessionId")
     val sessionID: String? = null,
 
@@ -250,6 +261,7 @@ enum class Type(val value: String) {
     Esp32OtaACK("esp32_ota_ack"),
     Esp32OtaError("esp32_ota_error"),
     FocusSession("focus_session"),
+    ForkSession("fork_session"),
     Interrupt("interrupt"),
     NavigateOption("navigate_option"),
     NewSession("new_session"),
@@ -278,6 +290,7 @@ enum class Type(val value: String) {
             "esp32_ota_ack"          -> Esp32OtaACK
             "esp32_ota_error"        -> Esp32OtaError
             "focus_session"          -> FocusSession
+            "fork_session"           -> ForkSession
             "interrupt"              -> Interrupt
             "navigate_option"        -> NavigateOption
             "new_session"            -> NewSession

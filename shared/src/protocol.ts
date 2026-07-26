@@ -804,6 +804,21 @@ export interface NewSessionCommand {
   cwd: string;
 }
 
+/**
+ * Branch a running session into a new one — the Codex Micro "fork".
+ *
+ * Claude Code expresses this as `claude --resume <id> --fork-session`, which
+ * keeps the conversation so far and gives the branch its own id. Only observed
+ * sessions can be forked: their AgentDeck id embeds Claude's own session id
+ * (`observed:claude:<uuid>`), whereas a managed session's id is one AgentDeck
+ * generated and does not identify anything to resume.
+ */
+export interface ForkSessionCommand {
+  type: 'fork_session';
+  /** AgentDeck session id — the daemon resolves the Claude id and the cwd. */
+  sessionId: string;
+}
+
 /** A directory an agent has recently worked in, offered as a launch target. */
 export interface RecentProject {
   path: string;
@@ -915,6 +930,7 @@ export type PluginCommand =
   | SwitchAgentCommand
   | SetEffortCommand
   | NewSessionCommand
+  | ForkSessionCommand
   | FocusSessionCommand
   | ClearSessionFocusCommand
   | SessionCommand

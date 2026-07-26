@@ -227,6 +227,14 @@ initSessionSlots((result) => {
       break;
     }
 
+    case 'fork-session': {
+      // A daemon-level command, not a PTY prompt: forking opens a new terminal
+      // running `claude --resume … --fork-session`, which only the daemon can do.
+      const focused = getFocusedSession();
+      if (focused) connMgr.send({ type: 'fork_session', sessionId: focused.id } as any);
+      break;
+    }
+
     case 'stop':
       sendFocusedSessionCommand({ type: 'interrupt' });
       break;

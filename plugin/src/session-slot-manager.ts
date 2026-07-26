@@ -158,6 +158,37 @@ const CC_PRESET_DEFS: Array<Omit<PresetAction, 'iconSvg'> & { iconSvg?: string; 
   { label: 'CLEAR', iconSvg: CLEAR_ICON_SVG, color: '#1e293b', textColor: '#94a3b8', prompt: '/clear' },
 ];
 
+// FORK: branch the conversation into a new session. Two arrows leaving a shared
+// trunk — the same shape git uses, so it reads without a legend.
+const FORK_ICON_SVG = [
+  `<path d="M60 84V56a10 10 0 0 1 10-10h18" fill="none" stroke="#c4b5fd" stroke-width="3" stroke-linecap="round"/>`,
+  `<path d="M60 84V64" fill="none" stroke="#c4b5fd" stroke-width="3" stroke-linecap="round"/>`,
+  `<circle cx="60" cy="88" r="7" fill="none" stroke="#c4b5fd" stroke-width="3"/>`,
+  `<circle cx="94" cy="46" r="7" fill="none" stroke="#c4b5fd" stroke-width="3"/>`,
+  `<circle cx="60" cy="24" r="7" fill="none" stroke="#c4b5fd" stroke-width="3"/>`,
+  `<path d="M60 31v25" fill="none" stroke="#c4b5fd" stroke-width="3" stroke-linecap="round"/>`,
+].join('');
+
+/**
+ * Only observed Claude sessions can be forked: their id embeds Claude's own
+ * session id, which is what `--resume` needs. A managed session's id is one
+ * AgentDeck generated and resumes nothing, so the key is not offered rather
+ * than offered and failing.
+ */
+export function canForkSession(session: SessionInfo | undefined): boolean {
+  return !!session?.id?.startsWith('observed:claude:');
+}
+
+/** The FORK key. Only reachable from the observed-session idle view. */
+const FORK_PRESET: PresetAction = {
+  label: 'FORK',
+  iconSvg: FORK_ICON_SVG,
+  color: '#241b3d',
+  textColor: '#c4b5fd',
+  subtitle: 'branch session',
+  localAction: 'fork_session',
+};
+
 // OpenCode observed idle: the observer plugin injects immediately via the
 // in-process SDK — same semantics as managed idle presets.
 const OC_OBSERVED_INJECT_PRESETS: Array<Omit<PresetAction, 'iconSvg'> & { iconSvg?: string }> = [
@@ -470,7 +501,7 @@ export class SessionSlotManager {
 
   /** Handle button press. Returns action to take. */
   handleSlotPress(slot: number, layout?: DeckLayout): {
-    action: 'enter-detail' | 'exit-detail' | 'select-option' | 'stop' | 'esc' | 'next-page' | 'send-prompt' | 'open-gateway' | 'switch-model' | 'review-run' | 'refresh-usage' | 'cycle-usage-page' | 'none';
+    action: 'enter-detail' | 'exit-detail' | 'select-option' | 'stop' | 'esc' | 'next-page' | 'send-prompt' | 'open-gateway' | 'switch-model' | 'review-run' | 'fork-session' | 'refresh-usage' | 'cycle-usage-page' | 'none';
     sessionId?: string;
     sessionPort?: number;
     optionIndex?: number;
@@ -513,6 +544,9 @@ export class SessionSlotManager {
         }
         if (config.preset?.localAction === 'review_run') {
           return { action: 'review-run' };
+        }
+        if (config.preset?.localAction === 'fork_session') {
+          return { action: 'fork-session' };
         }
         if (config.preset?.prompt) {
           return { action: 'send-prompt', promptText: config.preset.prompt };
@@ -936,13 +970,17 @@ export class SessionSlotManager {
       if (idx === OC_OBSERVED_INJECT_PRESETS.length) return this.reviewSlotConfig(session);
       return this.idleStatusCard(session, idx - OC_OBSERVED_INJECT_PRESETS.length - 1, false, false);
     }
-    // Claude/Codex observed idle: no prompt-delivery path, but the
-    // independent review stays live.
+    // Claude/Codex observed idle: no prompt-delivery path, but the independent
+    // review stays live — and so does FORK, which starts a *new* terminal
+    // rather than sending anything into this session.
     if (idx === 0) return this.reviewSlotConfig(session);
-    if (idx === 1) {
+    const forkable = canForkSession(session);
+    if (forkable && idx === 1) return { type: 'preset', preset: FORK_PRESET };
+    const rest = idx - (forkable ? 2 : 1);
+    if (rest === 0) {
       return { type: 'status', label: 'OBSERVED', subtitle: 'control in terminal', icon: 'ready', tone: 'info' };
     }
-    return this.idleStatusCard(session, idx - 2, false, false);
+    return this.idleStatusCard(session, rest - 1, false, false);
   }
 
   private getDetailSlotConfig(slot: number, layout: DeckLayout): SessionSlotConfig {

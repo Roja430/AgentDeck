@@ -21,6 +21,7 @@ import type {
   SwitchAgentCommand,
   SetEffortCommand,
   NewSessionCommand,
+  ForkSessionCommand,
   FocusSessionCommand,
   ClearSessionFocusCommand,
   SessionCommand,
@@ -78,6 +79,9 @@ export const agentCommand = {
   },
   newSession(agent: string, cwd: string): NewSessionCommand {
     return { type: "new_session", agent, cwd };
+  },
+  forkSession(sessionId: string): ForkSessionCommand {
+    return { type: "fork_session", sessionId };
   },
   focusSession(sessionId: string): FocusSessionCommand {
     return { type: "focus_session", sessionId };

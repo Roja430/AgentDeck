@@ -2705,6 +2705,31 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       }
       return;
     }
+    if (cmd.type === 'fork_session') {
+      // Branch an observed Claude session. The `observed:claude:` prefix is the
+      // gate, not a formality: it is what guarantees the trailing uuid is a
+      // Claude session id we can hand to --resume. A managed session's id is
+      // one AgentDeck minted and resumes nothing.
+      const { sessionId } = cmd as { sessionId: string };
+      const PREFIX = 'observed:claude:';
+      if (!sessionId?.startsWith(PREFIX)) {
+        notifyFailure('Only observed Claude sessions can be forked');
+        return;
+      }
+      const claudeSessionId = sessionId.slice(PREFIX.length);
+      // Observed rows carry the cwd from the process scan; the managed session
+      // registry does not track one, which is the other reason fork is
+      // observed-only.
+      const cwd = passiveSessionObserver.collect([]).find((s) => s.id === sessionId)?.cwd;
+      if (!cwd) {
+        notifyFailure('Could not resolve the session folder to fork in');
+        return;
+      }
+      const result = launchSession({ agent: 'claude', cwd, forkFrom: claudeSessionId });
+      debug('daemon', `fork_session ${claudeSessionId} in ${cwd}: ${result.ok ? 'launched' : result.error}`);
+      if (!result.ok) notifyFailure(`Could not fork: ${result.error ?? 'launch failed'}`);
+      return;
+    }
     if (cmd.type === 'switch_agent') {
       userFocusedSessionId = null;
       focusRelay.unfocus(); // Clear session focus on agent switch

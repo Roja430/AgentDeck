@@ -234,6 +234,25 @@
       ],
       "type": "object"
     },
+    "ForkSessionCommand": {
+      "additionalProperties": false,
+      "description": "Branch a running session into a new one — the Codex Micro \"fork\".\n\nClaude Code expresses this as `claude --resume <id> --fork-session`, which keeps the conversation so far and gives the branch its own id. Only observed sessions can be forked: their AgentDeck id embeds Claude's own session id (`observed:claude:<uuid>`), whereas a managed session's id is one AgentDeck generated and does not identify anything to resume.",
+      "properties": {
+        "sessionId": {
+          "description": "AgentDeck session id — the daemon resolves the Claude id and the cwd.",
+          "type": "string"
+        },
+        "type": {
+          "const": "fork_session",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "InterruptCommand": {
       "additionalProperties": false,
       "properties": {
@@ -363,6 +382,9 @@
         },
         {
           "$ref": "#/definitions/NewSessionCommand"
+        },
+        {
+          "$ref": "#/definitions/ForkSessionCommand"
         },
         {
           "$ref": "#/definitions/FocusSessionCommand"

@@ -74,6 +74,17 @@ No session while daemon is connected: healthy idle dashboard, not recovery UI. S
 
 **OpenClaw presets** (detail view): STATUS, MODEL (dynamic model name + switch), GATEWAY (browser). In PROCESSING, current tool/status is shown before these presets.
 
+**Observed Claude idle** (detail view): REVIEW and FORK. An observed session has
+no prompt-delivery path, so GO ON / COMMIT / CLEAR are absent by design — both
+of these act from outside the session instead. FORK runs
+`claude --resume <id> --fork-session` in a new terminal at the session's `cwd`,
+branching the conversation rather than steering it.
+
+Only observed sessions offer FORK. Their AgentDeck id is `observed:claude:<uuid>`
+and that uuid is Claude's own session id, which is what `--resume` needs; a
+managed session's id is one AgentDeck generated and resumes nothing, so the key
+is withheld rather than offered and failing.
+
 ## Agent Session UX Scenarios
 
 목표는 모든 하드웨어에서 같은 mental model 을 유지하는 것이다: **세션 버튼은 들어가기, 상세 화면은 상태 기반 명령, BACK 은 빠져나가기**. 다만 화면/입력 장치 특성에 따라 정보 밀도와 조작 깊이를 다르게 둔다.

@@ -179,6 +179,17 @@ sealed class AgentCommand {
         }
     }
 
+    data class ForkSession(val sessionId: String) : AgentCommand() {
+        override val typeTag: String = "fork_session"
+        override fun toJson(): String {
+            val buf = StringBuilder()
+            buf.append("{\"type\":\"fork_session\"")
+            buf.append(",\"sessionId\":").append(encode(sessionId))
+            buf.append("}")
+            return buf.toString()
+        }
+    }
+
     data class FocusSession(val sessionId: String) : AgentCommand() {
         override val typeTag: String = "focus_session"
         override fun toJson(): String {

@@ -21,6 +21,36 @@ export interface LaunchRequest {
   agent: string;
   /** Absolute directory to start the session in. */
   cwd: string;
+  /**
+   * Claude Code session id to branch from. When set, the terminal runs
+   * `claude --resume <id> --fork-session` instead of starting a fresh session.
+   */
+  forkFrom?: string;
+}
+
+/**
+ * A Claude Code session id, as it appears in `observed:claude:<uuid>` and in
+ * the transcripts. Validated because it lands on a command line — a value from
+ * anywhere else must not be able to smuggle arguments past `--resume`.
+ */
+const CLAUDE_SESSION_ID = /^[0-9a-fA-F-]{8,64}$/;
+
+export function isForkableSessionId(id: string): boolean {
+  return CLAUDE_SESSION_ID.test(id);
+}
+
+/**
+ * The command a terminal runs for this request.
+ *
+ * A fork calls `claude` directly rather than `agentdeck claude`: the hooks are
+ * installed globally, so the forked session is picked up as an observed session
+ * on its own, and routing it through the CLI would add a managed PTY wrapper
+ * the fork does not need.
+ */
+export function buildAgentCommand(req: LaunchRequest): string {
+  return req.forkFrom
+    ? `claude --resume ${req.forkFrom} --fork-session`
+    : `agentdeck ${req.agent}`;
 }
 
 export interface LaunchResult {
@@ -44,7 +74,7 @@ export function isLaunchableAgent(agent: string): boolean {
  * `C:\Users\me\Claude Code` from being split on the space.
  */
 export function buildWindowsTerminalArgs(req: LaunchRequest): string[] {
-  return ['-d', req.cwd, 'cmd.exe', '/k', `agentdeck ${req.agent}`];
+  return ['-d', req.cwd, 'cmd.exe', '/k', buildAgentCommand(req)];
 }
 
 /** macOS/Linux: hand the whole thing to the platform's terminal opener. */
@@ -52,14 +82,19 @@ export function buildPosixLaunch(req: LaunchRequest): { file: string; args: stri
   if (process.platform === 'darwin') {
     // `open -a Terminal <dir>` opens at the directory but cannot carry a
     // command, so the command is written as an AppleScript instead.
-    const script = `tell application "Terminal" to do script "cd ${JSON.stringify(req.cwd)} && agentdeck ${req.agent}"`;
+    const script = `tell application "Terminal" to do script "cd ${JSON.stringify(req.cwd)} && ${buildAgentCommand(req)}"`;
     return { file: 'osascript', args: ['-e', script] };
   }
-  return { file: 'x-terminal-emulator', args: ['-e', `agentdeck ${req.agent}`] };
+  return { file: 'x-terminal-emulator', args: ['-e', buildAgentCommand(req)] };
 }
 
 export function launchSession(req: LaunchRequest): LaunchResult {
-  if (!isLaunchableAgent(req.agent)) {
+  if (req.forkFrom !== undefined && !isForkableSessionId(req.forkFrom)) {
+    // The id reaches a command line; anything that is not a session id is a
+    // caller bug at best and an injected argument at worst.
+    return { ok: false, error: 'Invalid session id' };
+  }
+  if (!req.forkFrom && !isLaunchableAgent(req.agent)) {
     return { ok: false, error: `Unknown agent: ${req.agent}` };
   }
   if (!req.cwd || !existsSync(req.cwd)) {
