@@ -57,6 +57,11 @@ placed by the user instead. Volume (E1) is the usual trade: it drives macOS outp
 
 All keypad buttons are `session-slot`; the plugin reads the physical device grid from Stream Deck and maps `slot = row * columns + column`.
 
+Sessions fill those keys **packed** by list order, so ending one shifts the rest
+up. `deck.pinnedSlots` in `~/.agentdeck/settings.json` switches to the Codex
+Micro model instead — a session holds its key for its lifetime and leaves a gap
+when it ends. Off by default; see [Configuration](configuration.md).
+
 | Device | List View | Detail View |
 |--------|-----------|-------------|
 | Stream Deck+ (4×2) | 8 sessions, or 7 + NEXT | 0 BACK, 1 INFO, 2/3/4/5 content, 6 MORE, 7 ESC/STOP |

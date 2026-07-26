@@ -6,7 +6,8 @@
  * - Detail View: button 1=BACK, button 2=session info, buttons 3-7=options, button 8=ESC/STOP
  */
 import type { SessionInfo, StatusCardTone, StatusIconKind, CodexRateLimits } from '@agentdeck/shared';
-import { State, sortSessions, assignDisplayNames, foldCodexSessionsForDisplay, aliasModelName, Brand, usageWindowKind, usageWindowLabel } from '@agentdeck/shared';
+import { State, sortSessions, assignDisplayNames, foldCodexSessionsForDisplay, aliasModelName, Brand, usageWindowKind, usageWindowLabel, loadDeckSettings } from '@agentdeck/shared';
+import { SlotPinning } from './slot-pinning.js';
 import type { PromptOption } from '@agentdeck/shared';
 import { dlog } from './log.js';
 
@@ -179,6 +180,13 @@ export class SessionSlotManager {
 
   private _view: SlotView = 'list';
   private _currentPage = 0;
+  /**
+   * Positions held by each session when pinned slots are on. Empty and unused
+   * in the default packed mode, so the two layouts cannot interfere.
+   */
+  private readonly _pinning = new SlotPinning();
+  /** Read once per session-list update — a settings edit takes effect next tick. */
+  private _pinnedSlots = false;
   private _detailPage = 0;
   private _sessions: SessionInfo[] = [];
   private _displayNames = new Map<string, string>();
@@ -286,6 +294,15 @@ export class SessionSlotManager {
     const displayed = assignDisplayNames(this._sessions);
     for (const d of displayed) {
       this._displayNames.set(d.session.id, d.displayName);
+    }
+
+    // Pinned mode holds each session on the position it first claimed. Read the
+    // setting per update so toggling it takes effect without a plugin restart.
+    this._pinnedSlots = loadDeckSettings().pinnedSlots;
+    if (this._pinnedSlots) {
+      this._pinning.reconcile(this._sessions.map((s) => s.id), MAX_SESSIONS);
+    } else {
+      this._pinning.clear();
     }
 
     // Clamp page
@@ -557,15 +574,24 @@ export class SessionSlotManager {
     return totalSessions > cap ? Math.max(1, cap - 1) : cap;
   }
 
+  /**
+   * Positions the list has to cover. In packed mode that is just the session
+   * count; when pinned, a position vacated by an ended session still has to be
+   * paged past, so the span runs to the highest position in use.
+   */
+  private slotSpan(): number {
+    return this._pinnedSlots ? this._pinning.occupiedExtent() : this._sessions.length;
+  }
+
   private totalPages(layout: DeckLayout = DEFAULT_LAYOUT): number {
-    const count = this._sessions.length;
+    const count = this.slotSpan();
     const cap = Math.max(1, layout.keyCount - this.usageReserve(layout));
     if (count <= cap) return 1;
     return Math.ceil(count / this.listSessionsPerPage(layout, count));
   }
 
   private needsPagination(layout: DeckLayout): boolean {
-    return this._sessions.length > Math.max(1, layout.keyCount - this.usageReserve(layout));
+    return this.slotSpan() > Math.max(1, layout.keyCount - this.usageReserve(layout));
   }
 
   private isAwaitingDetailState(): boolean {
@@ -649,7 +675,7 @@ export class SessionSlotManager {
     }
 
     const needsPage = this.needsPagination(layout);
-    const sessionsOnPage = this.listSessionsPerPage(layout, this._sessions.length);
+    const sessionsOnPage = this.listSessionsPerPage(layout, this.slotSpan());
 
     // NEXT→ sits just before the pinned usage tiles (or the last key when no
     // usage is reserved). Sessions fill slots 0..sessionsOnPage-1.
@@ -661,7 +687,17 @@ export class SessionSlotManager {
     const startIdx = this._currentPage * sessionsOnPage;
     const sessionIdx = startIdx + slot;
 
-    if (slot < sessionsOnPage && sessionIdx < this._sessions.length) {
+    if (slot >= sessionsOnPage) return { type: 'empty' };
+
+    if (this._pinnedSlots) {
+      // The position is the address; a position whose session ended stays
+      // empty rather than pulling the next session up onto this key.
+      const id = this._pinning.sessionAt(sessionIdx);
+      const session = id ? this._sessions.find((s) => s.id === id) : undefined;
+      return session ? { type: 'session', session } : { type: 'empty' };
+    }
+
+    if (sessionIdx < this._sessions.length) {
       const session = this._sessions[sessionIdx];
       return {
         type: 'session',

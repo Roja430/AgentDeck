@@ -18,6 +18,7 @@ app uses its container path — see CLAUDE.md → User data dir).
 | `llm.mlx.endpoint` · `llm.mlx.model` | `http://127.0.0.1:8800` · `null` | Local MLX server used by APME's judge. |
 | `cost.dailyBudgetUsd` | unset | Daily spend tripwire for the COST view. Unset means no budget — see below. |
 | `cost.warnAtPercent` | `80` | Share of the budget at which the COST view turns amber. |
+| `deck.pinnedSlots` | `false` | Hold each session on the key it first appeared on — see below. |
 | `notifications.attention` | `true` | Desktop notification when a session starts waiting on you. |
 | `notifications.repeatWindowMs` | `60000` | Minimum gap between notices for the same session. |
 | `apme.*` | enabled, auto-tuning | Evaluation module — schema and semantics in [APME](apme.md). |
@@ -37,6 +38,26 @@ paint the encoder red on an ordinary working day. A zero or negative
 
 ```json
 { "cost": { "dailyBudgetUsd": 20, "warnAtPercent": 75 } }
+```
+
+### Pinned slots
+
+By default the keypad packs sessions by list order, so ending one shifts every
+session after it up a key. That is denser, but your hand learns "the build is on
+key 3" and then key 3 is something else — which is exactly the moment a STOP
+press goes to the wrong agent.
+
+`deck.pinnedSlots` switches to the Codex Micro model: a session claims a key on
+first sight and keeps it until it ends, and the key it vacates stays empty
+rather than being back-filled. A new session takes the lowest free key, so gaps
+get reused rather than accumulating.
+
+Off by default — packing is denser, and silently rearranging an existing
+keypad is the kind of change that has to be asked for. Paging still works; a
+gap counts as an occupied position, because it has to be paged past.
+
+```json
+{ "deck": { "pinnedSlots": true } }
 ```
 
 ### Attention notifications

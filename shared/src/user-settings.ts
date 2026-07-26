@@ -111,6 +111,45 @@ export function resetNotificationSettingsCache(): void {
   notifyCached = null;
 }
 
+// ===== Deck layout =====
+
+export interface DeckSettings {
+  /**
+   * Keep a session on the key it first appeared on for its whole lifetime,
+   * leaving a gap when it ends, instead of packing sessions by list order.
+   */
+  pinnedSlots: boolean;
+}
+
+let deckCached: { at: number; value: DeckSettings } | null = null;
+
+/**
+ * Source: ~/.agentdeck/settings.json → `deck.pinnedSlots`.
+ *
+ * Off by default: packing is denser, and silently rearranging an existing
+ * user's keypad is the kind of change that has to be asked for.
+ */
+export function loadDeckSettings(): DeckSettings {
+  if (deckCached && Date.now() - deckCached.at < CACHE_TTL_MS) return deckCached.value;
+
+  let pinnedSlots = false;
+  try {
+    const raw = JSON.parse(readFileSync(settingsPath(), 'utf-8')) as Record<string, unknown>;
+    const deck = (raw.deck ?? {}) as Record<string, unknown>;
+    if (typeof deck.pinnedSlots === 'boolean') pinnedSlots = deck.pinnedSlots;
+  } catch {
+    // No settings file — packed is the correct default.
+  }
+
+  const value: DeckSettings = { pinnedSlots };
+  deckCached = { at: Date.now(), value };
+  return value;
+}
+
+export function resetDeckSettingsCache(): void {
+  deckCached = null;
+}
+
 export type BudgetState = 'ok' | 'warn' | 'over';
 
 /** Classify today's spend against the budget. Null budget ⇒ no state at all. */
