@@ -35,6 +35,11 @@ function stateFromSession(session: SessionInfo): State {
   return session.alive ? State.IDLE : State.DISCONNECTED;
 }
 
+/** The daemon reports itself with an agentType the shared union does not list. */
+function isDaemonAgent(agentType: unknown): boolean {
+  return agentType === 'daemon';
+}
+
 /** Prefer an explicit user focus, then the event's source session. */
 function eventSessionId(ev: { sessionId?: string; focusedSessionId?: string }): string | undefined {
   return ev.focusedSessionId || ev.sessionId || undefined;
@@ -75,6 +80,15 @@ export class FocusedDetailState {
       && focused.agentType === 'openclaw'
       && ev.agentType === 'openclaw';
     if (sourceId !== focused.id && !legacyOpenClawMatch) return null;
+    // The daemon stamps the focused session's id onto its OWN state event, so
+    // the id check above cannot tell the two apart — only agentType can. It
+    // emits one on every focus_session, before the relay to that session has
+    // opened, and its own state is DISCONNECTED because the daemon runs no
+    // agent. Applying it painted DISCONNECTED over a healthy session for as
+    // long as the relay took to connect.
+    // `daemon` is outside the declared AgentType union — the daemon casts it on
+    // the way out — so this has to compare as a plain string.
+    if (isDaemonAgent(ev.agentType) && !isDaemonAgent(focused.agentType)) return null;
 
     this.current = {
       sessionId: focused.id,

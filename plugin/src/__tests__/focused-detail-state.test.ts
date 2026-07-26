@@ -87,4 +87,48 @@ describe('FocusedDetailState', () => {
       options: [{ index: 0, label: 'Yes' }, { index: 1, label: 'No' }],
     });
   });
+
+  describe('daemon state events', () => {
+    // On focus_session the daemon broadcasts its OWN state — which is
+    // DISCONNECTED, since it runs no agent — and stamps the focused session's
+    // id onto it. The id check therefore passes, and re-entering a live
+    // session's detail view showed DISCONNECTED until the relay connected.
+    it('does not apply the daemon state to a focused agent session', () => {
+      const store = new FocusedDetailState();
+      store.prime(claude);
+
+      expect(store.applyState(state({
+        focusedSessionId: claude.id,
+        agentType: 'daemon' as never,
+        state: State.DISCONNECTED,
+      }), claude)).toBeNull();
+
+      expect(store.snapshot?.state).toBe(State.PROCESSING);
+    });
+
+    it('still applies a state that came from the session itself', () => {
+      const store = new FocusedDetailState();
+      store.prime(claude);
+
+      store.applyState(state({
+        focusedSessionId: claude.id, agentType: 'daemon' as never, state: State.DISCONNECTED,
+      }), claude);
+
+      expect(store.applyState(state({
+        focusedSessionId: claude.id, agentType: 'claude-code', state: State.IDLE,
+      }), claude)).toMatchObject({ state: State.IDLE });
+    });
+
+    it('still applies it when the daemon itself is the focused session', () => {
+      const daemonSession: SessionInfo = {
+        ...claude, id: 'daemon', agentType: 'daemon' as never, state: State.DISCONNECTED,
+      };
+      const store = new FocusedDetailState();
+      store.prime(daemonSession);
+
+      expect(store.applyState(state({
+        focusedSessionId: 'daemon', agentType: 'daemon' as never, state: State.DISCONNECTED,
+      }), daemonSession)).toMatchObject({ state: State.DISCONNECTED });
+    });
+  });
 });
