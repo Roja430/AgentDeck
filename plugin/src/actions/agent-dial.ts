@@ -19,6 +19,7 @@ import streamDeck, {
   SingletonAction,
   DialRotateEvent,
   DialDownEvent,
+  TouchTapEvent,
   WillAppearEvent,
   WillDisappearEvent,
 } from '@elgato/streamdeck';
@@ -146,11 +147,15 @@ function buildCanvas(): string {
 
   const entry = state.current();
   const entries = state.getEntries();
+  // The page name leads, because tapping to swap pages is the one interaction
+  // on this dial with no visual affordance of its own.
+  const title = state.getPage() === 'model' ? 'MODEL ⇄' : 'MODE ⇄';
+
   if (!entry || !hasSession) {
     // The roll is still there — this says the press has nowhere to go, which is
     // fixed by focusing a session on the keypad, not by turning the dial.
     return renderUtilityGeneric({
-      title: entry ? (entry.kind === 'model' ? 'MODEL' : 'MODE') : 'AGENT',
+      title,
       icon: '○',
       value: entry ? `${entry.label} · no focus` : 'No session',
       indicator: { value: 0, bar_fill_c: '#64748b' },
@@ -159,7 +164,7 @@ function buildCanvas(): string {
 
   const active = state.isCurrentActive();
   const data: UtilityRenderData = {
-    title: entry.kind === 'model' ? 'MODEL' : 'MODE',
+    title,
     icon: seeking ? '⏳' : (active ? '●' : '○'),
     value: entry.label,
     indicator: {
@@ -211,6 +216,16 @@ export class AgentDialAction extends SingletonAction {
     } else {
       seekMode(entry.value);
     }
+    refreshAgentDials();
+  }
+
+  /** Swap between the model page and the mode page. */
+  override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
+    if (!isDaemonConnected()) return;
+    // A page swap must not leave a mode hunt running against the page the user
+    // just left.
+    stopSeeking();
+    dlog('AgentDial', `tap → ${state.togglePage()} page`);
     refreshAgentDials();
   }
 

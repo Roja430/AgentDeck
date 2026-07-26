@@ -122,9 +122,9 @@
       "Encoder": {
         "layout": "layouts/encoder-layout.json",
         "TriggerDescription": {
-          "Rotate": "Choose a model or permission mode",
+          "Rotate": "Choose a model or mode",
           "Push": "Apply the selection",
-          "Touch": ""
+          "Touch": "Switch between models and modes"
         }
       },
       "UUID": "bound.serendipity.agentdeck.agent-dial"

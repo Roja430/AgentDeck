@@ -4,10 +4,12 @@
  * Split out of the action module for the same reason as `session-dial-state`:
  * action files import `@elgato/streamdeck`, which the test runner cannot load.
  *
- * One flat roll rather than two pages switched by an LCD tap. The multi-mode
- * Utility Dial that tapping used to drive was removed precisely because nobody
- * discovered the tap, and this dial would repeat the mistake — the Launcher's
- * single roll (agents, then "New ·" entries) is the pattern that works here.
+ * Two pages — models and modes — swapped by tapping the LCD, each keeping its
+ * own cursor so switching back lands where you left off. A single flat roll was
+ * tried first and read as one undifferentiated list of unrelated things.
+ *
+ * The tap is the one interaction here with no visual affordance, so the page
+ * name is rendered as a heading rather than left implicit.
  */
 import type { ModelCatalogEntry } from '@agentdeck/shared';
 import { PermissionMode } from '@agentdeck/shared';
@@ -62,49 +64,59 @@ export const FALLBACK_MODELS: { key: string; name: string }[] = [
  * currently reach, and offering one produces a rejection the user has to read
  * off a 200px LCD to understand.
  */
-export function buildAgentEntries(catalog: ModelCatalogEntry[] = []): AgentDialEntry[] {
+export function buildModelEntries(catalog: ModelCatalogEntry[] = []): AgentDialEntry[] {
   const usable = catalog.filter((m) => m.available !== false);
-  const models: AgentDialEntry[] = usable.length > 0
+  return usable.length > 0
     ? usable.map((m) => ({ kind: 'model' as const, label: m.name || m.key, value: m.key }))
     : FALLBACK_MODELS.map((m) => ({ kind: 'model' as const, label: m.name, value: m.key }));
-  const modes: AgentDialEntry[] = OFFERED_MODES.map((m) => ({
-    kind: 'mode' as const,
-    label: m.label,
-    value: m.value,
-  }));
-  return [...models, ...modes];
+}
+
+export function buildModeEntries(): AgentDialEntry[] {
+  return OFFERED_MODES.map((m) => ({ kind: 'mode' as const, label: m.label, value: m.value }));
 }
 
 export class AgentDialState {
-  // Populated up front. The roll never depends on an event arriving: the modes
+  // Populated up front. The pages never depend on an event arriving: the modes
   // are always offerable, and a Claude session never sends a catalog at all —
   // waiting for one left the dial reading "No session" forever.
-  private entries: AgentDialEntry[] = buildAgentEntries([]);
-  private cursor = 0;
+  private models: AgentDialEntry[] = buildModelEntries([]);
+  private readonly modes: AgentDialEntry[] = buildModeEntries();
+  private page: AgentDialKind = 'model';
+  /** One cursor per page, so switching back lands where you left off. */
+  private cursors: Record<AgentDialKind, number> = { model: 0, mode: 0 };
   private activeModel: string | undefined;
   private activeMode: string | undefined;
 
-  getEntries(): AgentDialEntry[] { return this.entries; }
-  getCursor(): number { return this.cursor; }
-  current(): AgentDialEntry | undefined { return this.entries[this.cursor]; }
+  getPage(): AgentDialKind { return this.page; }
+  getEntries(): AgentDialEntry[] { return this.page === 'model' ? this.models : this.modes; }
+  getCursor(): number { return this.cursors[this.page]; }
+  current(): AgentDialEntry | undefined { return this.getEntries()[this.getCursor()]; }
   getActiveModel(): string | undefined { return this.activeModel; }
   getActiveMode(): string | undefined { return this.activeMode; }
+
+  /** Tapping the LCD swaps pages. */
+  togglePage(): AgentDialKind {
+    this.page = this.page === 'model' ? 'mode' : 'model';
+    return this.page;
+  }
 
   /**
    * Adopt a catalog. The cursor holds its *entry* rather than its index, so a
    * catalog arriving mid-roll does not move the selection under the user.
    */
   setCatalog(catalog: ModelCatalogEntry[]): void {
-    const held = this.current();
-    this.entries = buildAgentEntries(catalog);
+    const held = this.models[this.cursors.model];
+    this.models = buildModelEntries(catalog);
     if (held) {
-      const i = this.entries.findIndex((e) => e.kind === held.kind && e.value === held.value);
+      const i = this.models.findIndex((e) => e.value === held.value);
       if (i >= 0) {
-        this.cursor = i;
+        this.cursors.model = i;
         return;
       }
     }
-    if (this.cursor >= this.entries.length) this.cursor = Math.max(0, this.entries.length - 1);
+    if (this.cursors.model >= this.models.length) {
+      this.cursors.model = Math.max(0, this.models.length - 1);
+    }
   }
 
   /** What the agent reports right now — drives the "active" marker on the LCD. */
@@ -114,9 +126,10 @@ export class AgentDialState {
   }
 
   rotate(ticks: number): void {
-    if (this.entries.length === 0) return;
+    const entries = this.getEntries();
+    if (entries.length === 0) return;
     const dir = ticks >= 0 ? 1 : -1;
-    this.cursor = (this.cursor + dir + this.entries.length) % this.entries.length;
+    this.cursors[this.page] = (this.getCursor() + dir + entries.length) % entries.length;
   }
 
   /** True when the cursor sits on what is already in effect. */
@@ -129,8 +142,9 @@ export class AgentDialState {
   }
 
   reset(): void {
-    this.entries = buildAgentEntries([]);
-    this.cursor = 0;
+    this.models = buildModelEntries([]);
+    this.page = 'model';
+    this.cursors = { model: 0, mode: 0 };
     this.activeModel = undefined;
     this.activeMode = undefined;
   }

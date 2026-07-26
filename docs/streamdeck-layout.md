@@ -29,7 +29,7 @@ UUIDs are immutable post-distribution, so several no longer describe their role.
 | `iterm-dial` | Codex Usage | E3 — Codex quota gauge |
 | `launcher` | Launcher | E4 — open an agent, or start a new session in a recent project |
 | `effort-dial` | Reasoning Effort | unassigned — rotate to choose a level, press to apply via `/effort` |
-| `agent-dial` | Model & Mode | unassigned — one roll of models then permission modes |
+| `agent-dial` | Model & Mode | unassigned — a model page and a mode page, tapped to swap |
 | `session-dial` | Session Navigator | unassigned — rotate between sessions, press to focus |
 
 ### Steering dials: how they reach the agent
@@ -50,6 +50,15 @@ target, bounded and verified rather than counting an assumed cycle order (which
 modes are in the rotation depends on the user's settings). `dontAsk` and
 `bypassPermissions` are deliberately not offered: a dial is too easy to nudge
 past a detent for blanket approval to be a one-flick decision.
+
+`agent-dial` keeps models and modes on separate pages, swapped by tapping the
+LCD, each with its own cursor. Tapping has no visual affordance of its own, so
+the page name leads the LCD rather than being left implicit.
+
+**Commands must be added to `ROUTED_COMMANDS` in `session-focus-relay.ts`.**
+That set is an allowlist and an unlisted command is discarded silently — the
+deck sends, the daemon drops it, the terminal shows nothing and no log records
+a refusal. Both steering dials shipped inert for exactly this reason.
 
 ### Launcher: new task
 

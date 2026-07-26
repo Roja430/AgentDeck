@@ -1,19 +1,21 @@
 /**
- * Agent-control dial — the roll and what counts as "already active".
+ * Agent-control dial — two pages, and what counts as "already active".
  *
  * The dial writes into a live prompt on press, so the entry under the cursor
  * has to be exactly what the user read off the LCD: a catalog arriving mid-roll
- * must not slide the selection onto a different model.
+ * must not slide the selection onto a different model, and a page swap must not
+ * carry a cursor across.
  */
 import { describe, expect, it } from 'vitest';
 import type { ModelCatalogEntry } from '@agentdeck/shared';
 import { PermissionMode } from '@agentdeck/shared';
 import {
   AgentDialState,
-  OFFERED_MODES,
-  buildAgentEntries,
-  isSameModel,
   FALLBACK_MODELS,
+  OFFERED_MODES,
+  buildModelEntries,
+  buildModeEntries,
+  isSameModel,
 } from '../agent-dial-state.js';
 
 const catalog = (over: Partial<ModelCatalogEntry>[] = []): ModelCatalogEntry[] =>
@@ -21,50 +23,83 @@ const catalog = (over: Partial<ModelCatalogEntry>[] = []): ModelCatalogEntry[] =
     key: `m${i}`, name: `Model ${i}`, role: 'configured', available: true, ...o,
   }));
 
-describe('buildAgentEntries', () => {
-  it('puts models first and modes last', () => {
-    const entries = buildAgentEntries(catalog([{ key: 'sonnet', name: 'Sonnet 5' }]));
-    expect(entries.map((e) => e.kind)).toEqual(['model', ...OFFERED_MODES.map(() => 'mode')]);
-    expect(entries[0]).toMatchObject({ kind: 'model', label: 'Sonnet 5', value: 'sonnet' });
+describe('page contents', () => {
+  it('lists the catalog models when there is a catalog', () => {
+    const entries = buildModelEntries(catalog([{ key: 'sonnet', name: 'Sonnet 5' }]));
+    expect(entries).toEqual([{ kind: 'model', label: 'Sonnet 5', value: 'sonnet' }]);
   });
 
   it('drops models the account cannot reach', () => {
-    const entries = buildAgentEntries(catalog([
-      { key: 'ok', available: true },
-      { key: 'nope', available: false },
-    ]));
-    expect(entries.filter((e) => e.kind === 'model').map((e) => e.value)).toEqual(['ok']);
+    const entries = buildModelEntries(catalog([{ key: 'ok' }, { key: 'nope', available: false }]));
+    expect(entries.map((e) => e.value)).toEqual(['ok']);
   });
 
   it('falls back to the CLI aliases when no catalog arrives', () => {
     // `modelCatalog` only ever comes from the OpenClaw adapter, so for a Claude
-    // session it stays empty forever — a catalog-only roll offered no models
+    // session it stays empty forever — a catalog-only page offered no models
     // and the dial read "No session".
-    const entries = buildAgentEntries([]);
-    const models = entries.filter((e) => e.kind === 'model').map((e) => e.value);
-    expect(models).toEqual(FALLBACK_MODELS.map((m) => m.key));
-    expect(entries.filter((e) => e.kind === 'mode')).toHaveLength(OFFERED_MODES.length);
-  });
-
-  it('prefers a real catalog over the fallback once one arrives', () => {
-    const entries = buildAgentEntries(catalog([{ key: 'sonnet' }]));
-    expect(entries.filter((e) => e.kind === 'model').map((e) => e.value)).toEqual(['sonnet']);
+    expect(buildModelEntries([]).map((e) => e.value)).toEqual(FALLBACK_MODELS.map((m) => m.key));
   });
 
   it('falls back rather than emptying when every model is unavailable', () => {
-    const entries = buildAgentEntries(catalog([{ key: 'nope', available: false }]));
-    expect(entries.filter((e) => e.kind === 'model').length).toBe(FALLBACK_MODELS.length);
+    const entries = buildModelEntries(catalog([{ key: 'nope', available: false }]));
+    expect(entries).toHaveLength(FALLBACK_MODELS.length);
   });
 
   it('leaves the blanket-approval modes off the dial', () => {
-    const values = buildAgentEntries([]).map((e) => e.value);
+    const values = buildModeEntries().map((e) => e.value);
+    expect(values).toHaveLength(OFFERED_MODES.length);
     expect(values).not.toContain(PermissionMode.BYPASS_PERMISSIONS);
     expect(values).not.toContain(PermissionMode.DONT_ASK);
   });
 });
 
-describe('AgentDialState', () => {
-  it('keeps the cursor on the same entry when the catalog changes', () => {
+describe('AgentDialState pages', () => {
+  it('starts on the model page and swaps on tap', () => {
+    const s = new AgentDialState();
+    expect(s.getPage()).toBe('model');
+    expect(s.togglePage()).toBe('mode');
+    expect(s.current()?.kind).toBe('mode');
+    expect(s.togglePage()).toBe('model');
+  });
+
+  it('keeps a separate cursor per page', () => {
+    const s = new AgentDialState();
+    s.rotate(1);
+    const modelPick = s.current()?.value;
+
+    s.togglePage();
+    s.rotate(1);
+    const modePick = s.current()?.value;
+    expect(modePick).not.toBe(modelPick);
+
+    // Coming back must land where the user left, not at the top.
+    s.togglePage();
+    expect(s.current()?.value).toBe(modelPick);
+    s.togglePage();
+    expect(s.current()?.value).toBe(modePick);
+  });
+
+  it('rotates only within the current page', () => {
+    const s = new AgentDialState();
+    const models = s.getEntries().length;
+    for (let i = 0; i < models; i++) s.rotate(1);
+    expect(s.getCursor()).toBe(0);
+    expect(s.current()?.kind).toBe('model');
+  });
+
+  it('wraps in both directions', () => {
+    const s = new AgentDialState();
+    const total = s.getEntries().length;
+    s.rotate(-1);
+    expect(s.getCursor()).toBe(total - 1);
+    s.rotate(1);
+    expect(s.getCursor()).toBe(0);
+  });
+});
+
+describe('AgentDialState catalog and active marker', () => {
+  it('keeps the cursor on the same model when the catalog changes', () => {
     const s = new AgentDialState();
     s.setCatalog(catalog([{ key: 'a' }, { key: 'b' }]));
     s.rotate(1); // → b
@@ -75,34 +110,24 @@ describe('AgentDialState', () => {
     expect(s.current()?.value).toBe('b');
   });
 
-  it('clamps the cursor when the list shrinks under it', () => {
+  it('clamps the model cursor when the catalog shrinks under it', () => {
     const s = new AgentDialState();
     s.setCatalog(catalog([{ key: 'a' }, { key: 'b' }, { key: 'c' }]));
-    while (s.getCursor() < s.getEntries().length - 1) s.rotate(1); // → last entry
+    s.rotate(1); s.rotate(1); // → c
     s.setCatalog(catalog([{ key: 'a' }]));
     expect(s.getCursor()).toBeLessThan(s.getEntries().length);
     expect(s.current()).toBeDefined();
   });
 
-  it('wraps in both directions', () => {
-    const s = new AgentDialState();
-    s.setCatalog(catalog([{ key: 'a' }]));
-    const total = s.getEntries().length;
-    s.rotate(-1);
-    expect(s.getCursor()).toBe(total - 1);
-    s.rotate(1);
-    expect(s.getCursor()).toBe(0);
-  });
-
-  it('marks the entry in effect for both kinds', () => {
+  it('marks the entry in effect on each page', () => {
     const s = new AgentDialState();
     s.setCatalog(catalog([{ key: 'sonnet', name: 'Sonnet 5' }]));
     s.setActive('Sonnet 5', PermissionMode.ACCEPT_EDITS);
     expect(s.isCurrentActive()).toBe(true);
 
+    s.togglePage();
     while (s.current()?.value !== PermissionMode.ACCEPT_EDITS) s.rotate(1);
     expect(s.isCurrentActive()).toBe(true);
-
     s.rotate(1);
     expect(s.isCurrentActive()).toBe(false);
   });
