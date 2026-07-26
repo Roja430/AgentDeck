@@ -3141,6 +3141,40 @@ describe('OutputParser', () => {
       expect(events[0]).toEqual({ level: 'low' });
     });
 
+    // Claude Code 2.1+ has a dedicated /effort command, and the banner alone
+    // is printed once at startup — so a level changed later was never seen and
+    // the reported value stayed at whatever the session began with.
+    it('detects the status corner, which is redrawn after every change', () => {
+      const p = createParser();
+      const events = collectEvents(p, 'effort_level');
+      p.feed('● xhigh · /effort\n');
+      expect(events).toEqual([{ level: 'xhigh' }]);
+    });
+
+    it('detects the /effort confirmation line', () => {
+      const p = createParser();
+      const events = collectEvents(p, 'effort_level');
+      p.feed('Set effort level to medium (saved as your default for new sessions)\n');
+      expect(events).toEqual([{ level: 'medium' }]);
+    });
+
+    it('tracks a level changed after startup', () => {
+      const p = createParser();
+      const events = collectEvents(p, 'effort_level');
+      p.feed('Sonnet 5 with high effort · Claude Pro\n');
+      p.feed('Set effort level to low (saved as your default for new sessions)\n');
+      expect(events).toEqual([{ level: 'high' }, { level: 'low' }]);
+    });
+
+    it('recognises the levels the CLI added alongside /effort', () => {
+      for (const level of ['auto', 'ultracode']) {
+        const p = createParser();
+        const events = collectEvents(p, 'effort_level');
+        p.feed(`● ${level} · /effort\n`);
+        expect(events, level).toEqual([{ level }]);
+      }
+    });
+
     it('detects "with high effort" confirmation line', () => {
       const p = createParser();
       const events = collectEvents(p, 'effort_level');

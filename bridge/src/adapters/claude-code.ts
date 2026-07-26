@@ -43,6 +43,10 @@ export class ClaudeCodeAdapter extends PtyAdapter {
       'tool_action',
       'project_name',
       'model_info',
+      // The parser emitted this and the state machine had a handler for it, but
+      // nothing connected the two — so effortLevel was never reported and the
+      // deck's effort dial had no value to show.
+      'effort_level',
       'mode_change',
       'suggested_prompt',
       'remote_url',

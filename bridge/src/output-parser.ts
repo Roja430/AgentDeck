@@ -78,7 +78,23 @@ const MODEL_INFO = /((?:Opus|Sonnet|Haiku)[ \t]*[\d.]+|Claude[ \t]*[\d.]+[ \t]*(
 // Claude Code 2.1+ adds per-model variants: Opus 4.7 exposes default/max/xhigh/
 // high/medium/low; Opus 4.6 adds "fast". Older builds only had high/medium/low.
 // Keep the whitelist explicit so unrelated "<word> effort" phrases don't match.
-const EFFORT_LEVEL = /\b(max|xhigh|high|medium|low|default|fast)\s+effort\b/i;
+const EFFORT_WORD = 'max|xhigh|high|medium|low|default|fast|auto|ultracode';
+
+/**
+ * Every phrasing Claude Code uses to state the current effort level.
+ *
+ * The banner alone is not enough: it is printed once at startup, so a level
+ * changed later was never picked up and the reported value stayed at whatever
+ * the session began with (or nothing at all).
+ */
+const EFFORT_LEVEL_PATTERNS = [
+  // Startup banner — "… with high effort · Claude Pro"
+  new RegExp(`\\b(${EFFORT_WORD})\\s+effort\\b`, 'i'),
+  // Status corner, redrawn continuously — "● high · /effort"
+  new RegExp(`\\b(${EFFORT_WORD})\\s*·\\s*/effort`, 'i'),
+  // Confirmation of a change — "Set effort level to high (saved as …)"
+  new RegExp(`effort\\s+level\\s+to\\s+(${EFFORT_WORD})\\b`, 'i'),
+];
 
 const SPINNER_DEBOUNCE_MS = 2000;
 const IDLE_DEBOUNCE_MS = 300;
@@ -757,14 +773,16 @@ export class OutputParser extends EventEmitter {
   }
 
   private parseEffortLevel(chunk: string): void {
-    const match = chunk.match(EFFORT_LEVEL);
-    if (match && match[1]) {
+    for (const pattern of EFFORT_LEVEL_PATTERNS) {
+      const match = chunk.match(pattern);
+      if (!match?.[1]) continue;
       const level = match[1].toLowerCase();
       if (level !== this.effortLevel) {
         this.effortLevel = level;
         debug('Parser', `effort_level: ${level}`);
         this.emit('effort_level', { level });
       }
+      return;
     }
   }
 
