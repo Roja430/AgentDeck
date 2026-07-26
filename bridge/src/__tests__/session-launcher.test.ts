@@ -2,9 +2,47 @@ import { describe, expect, it } from 'vitest';
 import { tmpdir } from 'os';
 import {
   buildWindowsTerminalArgs,
+  cleanAgentEnv,
   isLaunchableAgent,
   launchSession,
 } from '../session-launcher.js';
+
+describe('cleanAgentEnv', () => {
+  // The daemon is often started from inside a Claude Code session. A launched
+  // agent inheriting CLAUDE_CODE_CHILD_SESSION decides it is a nested run and
+  // stops writing a transcript — which is the only thing the deck can observe,
+  // so the session looks launched and is invisible.
+  it('drops the parent session identity', () => {
+    const out = cleanAgentEnv({
+      CLAUDECODE: '1',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+      CLAUDE_CODE_SESSION_ID: 'abc',
+      CLAUDE_CODE_HOST_SESSION_ID: 'def',
+      CLAUDE_CODE_ENTRYPOINT: 'cli',
+    });
+    expect(Object.keys(out)).toEqual([]);
+  });
+
+  it('keeps user configuration and unrelated variables', () => {
+    const out = cleanAgentEnv({
+      PATH: '/usr/bin',
+      CLAUDE_CODE_API_BASE_URL: 'https://example.test',
+      CLAUDE_CODE_DISABLE_CRON: '1',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+    });
+    expect(out).toEqual({
+      PATH: '/usr/bin',
+      CLAUDE_CODE_API_BASE_URL: 'https://example.test',
+      CLAUDE_CODE_DISABLE_CRON: '1',
+    });
+  });
+
+  it('does not mutate the environment it was given', () => {
+    const src = { CLAUDE_CODE_CHILD_SESSION: '1' };
+    cleanAgentEnv(src);
+    expect(src.CLAUDE_CODE_CHILD_SESSION).toBe('1');
+  });
+});
 
 describe('buildWindowsTerminalArgs', () => {
   it('passes the directory as its own argument so spaces survive', () => {

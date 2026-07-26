@@ -88,6 +88,38 @@ export function buildPosixLaunch(req: LaunchRequest): { file: string; args: stri
   return { file: 'x-terminal-emulator', args: ['-e', buildAgentCommand(req)] };
 }
 
+/**
+ * Environment variables that identify a *specific* Claude Code session.
+ *
+ * The daemon is often started from inside a Claude Code session, and a spawned
+ * agent inherits its whole environment. Claude Code sees `CLAUDE_CODE_CHILD_SESSION`
+ * and concludes it is a nested run, which turns transcript saving off — and the
+ * transcript is what AgentDeck reads for observed sessions, cost, and the recent
+ * project list. So the new session appears to start fine and is silently
+ * invisible to the deck.
+ *
+ * Only session identity is stripped. Genuine user configuration
+ * (`CLAUDE_CODE_API_BASE_URL`, `CLAUDE_CODE_DISABLE_*`, …) is left alone.
+ */
+const SESSION_IDENTITY_VARS = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_HOST_SESSION_ID',
+  'CLAUDE_CODE_SESSION_ACCESS_TOKEN',
+  'CLAUDE_CODE_SESSION_KIND',
+  'CLAUDE_CODE_SESSION_NAME',
+  'CLAUDE_CODE_SESSION_LOG',
+  'CLAUDE_CODE_ENTRYPOINT',
+] as const;
+
+/** A copy of `env` with the parent session's identity removed. */
+export function cleanAgentEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out = { ...env };
+  for (const key of SESSION_IDENTITY_VARS) delete out[key];
+  return out;
+}
+
 export function launchSession(req: LaunchRequest): LaunchResult {
   if (req.forkFrom !== undefined && !isForkableSessionId(req.forkFrom)) {
     // The id reaches a command line; anything that is not a session id is a
@@ -118,6 +150,7 @@ export function launchSession(req: LaunchRequest): LaunchResult {
       detached: true,
       stdio: 'ignore',
       windowsHide: false,
+      env: cleanAgentEnv(process.env),
     });
     let failed: string | undefined;
     child.on('error', (err) => {

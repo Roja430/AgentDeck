@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { debug } from './logger.js';
+import { cleanAgentEnv } from './session-launcher.js';
 
 /** Minimal interface matching node-pty's IPty */
 interface IPty {
@@ -42,7 +43,13 @@ export class PtyManager extends EventEmitter {
 
     debug('PTY', `spawn: shell=${shell} cmd="${command}" cols=${cols} rows=${rows} cwd=${process.cwd()}`);
 
-    const env = { ...(process.env as Record<string, string>), ...extraEnv };
+    // Strip the parent's session identity for the same reason the launcher does:
+    // an inherited CLAUDE_CODE_CHILD_SESSION turns the agent's transcript off,
+    // and the transcript is what the deck observes.
+    const env = {
+      ...(cleanAgentEnv(process.env) as Record<string, string>),
+      ...extraEnv,
+    };
 
     let proc: IPty;
     try {
