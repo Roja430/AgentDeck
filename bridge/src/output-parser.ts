@@ -13,7 +13,16 @@ const PERMISSION_YN = /\(Y\)es.*\/\(N\)o|\(y\/n\)/i;
 const DIFF_PROMPT = /\(V\)iew diff.*\(A\)pply.*\(D\)eny|\(a\)pply.*\(d\)eny.*\(v\)iew/i;
 // ANSI stripping can remove spaces (e.g. "❯3.Haiku" instead of "❯ 3. Haiku")
 const OPTION_NUMBERED = /^\s*❯?\s*\d{1,2}[.)]\s*.+/m;
-const OPTION_BULLET = /^\s*[►▸●○]\s+.+/m;
+/**
+ * Bulleted options.
+ *
+ * `●` is deliberately absent: Claude Code v2.1 prints every assistant line and
+ * tool call with it ("● I'll write that file.", "● Write(test.txt)"), and
+ * treating those as options put the transcript on the deck as a choice list —
+ * then held it there, because the real numbered prompt arrived to find a block
+ * of "options" already claimed.
+ */
+const OPTION_BULLET = /^\s*[►▸○]\s+.+/m;
 
 // Bounded window (chars) the option-block parser scans back over. Must fit a tall
 // AskUserQuestion prompt (question + per-option descriptions + trailing
@@ -1042,7 +1051,7 @@ export class OutputParser extends EventEmitter {
     // The loose form is only honoured inside a block that also contains a
     // properly separated option (`sawStrictOption` below). On its own it would
     // match ordinary prose like "3 files changed".
-    const strictOptLineRe = /^\s*❯?\s*\d{1,2}[.)]\s*.+|^\s*[►▸●○]\s+.+/;
+    const strictOptLineRe = /^\s*❯?\s*\d{1,2}[.)]\s*.+|^\s*[►▸○]\s+.+/;
     const looseOptLineRe = /^\s*❯?\s*\d{1,2}\s+\S.*/;
     const optLineRe = { test: (l: string) => strictOptLineRe.test(l) || looseOptLineRe.test(l) };
     const allLines = normalized.split('\n');
@@ -1128,7 +1137,7 @@ export class OutputParser extends EventEmitter {
         byIndex.set(idx, opt);
         continue;
       }
-      const bm = line.match(/^\s*([►▸●○])\s+(.+)/);
+      const bm = line.match(/^\s*([►▸○])\s+(.+)/);
       if (bm) {
         const idx = byIndex.size;
         byIndex.set(idx, { index: idx, label: bm[2].trim() });

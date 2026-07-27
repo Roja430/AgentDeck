@@ -3136,6 +3136,18 @@ describe('OutputParser', () => {
       expect(events[0].options.map((o: PromptOption) => o.index)).toEqual([0, 2]);
     });
 
+    it('does not turn assistant and tool lines into options', () => {
+      // Claude Code v2.1 prefixes every one of them with a filled bullet, and
+      // reading those as choices put the transcript on the deck as a choice list.
+      const p = armParser();
+      const opt = collectEvents(p, 'option_prompt');
+      const perm = collectEvents(p, 'permission_prompt');
+      p.feed('● I will write that file.\n● Write(test.txt)\n');
+      vi.advanceTimersByTime(200);
+      expect(opt).toEqual([]);
+      expect(perm).toEqual([]);
+    });
+
     it('does not invent options from prose that merely starts with a digit', () => {
       // Without a separated row to anchor it, '3 files changed' is just text.
       const p = armParser();
