@@ -20,7 +20,12 @@ import streamDeck, {
   WillDisappearEvent,
 } from '@elgato/streamdeck';
 import { State } from '@agentdeck/shared';
-import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
+import {
+  encoderRegistry,
+  isDaemonConnected,
+  rememberEncoderColumn,
+  forgetEncoderColumn,
+} from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderUtilityGeneric, type UtilityRenderData } from '../renderers/utility-renderer.js';
 import { dlog, dinfo, dwarn } from '../log.js';
@@ -32,7 +37,7 @@ import {
   setOutputMuted,
   HAS_OSASCRIPT,
 } from '../utility-modes/macos.js';
-import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
+import { paintOfflineBanner } from '../offline-banner.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
@@ -116,11 +121,7 @@ export function refreshUtilityDials(): void {
   // (which flips transiently during multi-session switching while the daemon is up).
   if (!isDaemonConnected()) {
     ensurePixmapLayout();
-    const canvasFeedback = { canvas: svgToDataUrl(renderOfflineTouchStrip(0)) };
-    for (const id of encoderRegistry.utilityIds) {
-      const dial = streamDeck.actions.getActionById(id) as any;
-      if (dial) void dial.setFeedback(canvasFeedback).catch(() => {});
-    }
+    paintOfflineBanner(encoderRegistry.utilityIds);
     return;
   }
 
@@ -152,6 +153,7 @@ export class UtilityDialAction extends SingletonAction {
     if (!encoderRegistry.utilityIds.includes(ev.action.id)) {
       encoderRegistry.utilityIds.push(ev.action.id);
     }
+    rememberEncoderColumn(ev.action.id, (ev.payload as any).coordinates?.column);
     await syncFromSystem();
     startPolling();
     if (dimActionIfNeeded(ev.action, 'Encoder')) return;
@@ -195,6 +197,7 @@ export class UtilityDialAction extends SingletonAction {
 
   override onWillDisappear(ev: WillDisappearEvent): void {
     dinfo('VolumeDial', `onWillDisappear: id=${ev.action.id}`);
+    forgetEncoderColumn(ev.action.id);
     const idx = encoderRegistry.utilityIds.indexOf(ev.action.id);
     if (idx !== -1) {
       encoderRegistry.utilityIds.splice(idx, 1);

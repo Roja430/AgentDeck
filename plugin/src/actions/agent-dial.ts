@@ -25,10 +25,15 @@ import streamDeck, {
 } from '@elgato/streamdeck';
 import type { ModelCatalogEntry } from '@agentdeck/shared';
 import { State } from '@agentdeck/shared';
-import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
+import {
+  encoderRegistry,
+  isDaemonConnected,
+  rememberEncoderColumn,
+  forgetEncoderColumn,
+} from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderUtilityGeneric, type UtilityRenderData } from '../renderers/utility-renderer.js';
-import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
+import { paintOfflineBanner } from '../offline-banner.js';
 import { AgentDialState, MAX_MODE_STEPS } from '../agent-dial-state.js';
 import { dlog, dinfo, dwarn } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
@@ -132,19 +137,24 @@ function refreshAgentDials(): void {
   if (isDisplayDimmed()) return;
   if (encoderRegistry.agentIds.length === 0) return;
 
+  for (const id of encoderRegistry.agentIds) {
+    const dial = streamDeck.actions.getActionById(id) as any;
+    if (dial) void dial.setFeedbackLayout(PIXMAP_LAYOUT).catch(() => {});
+  }
+
+  if (!isDaemonConnected()) {
+    paintOfflineBanner(encoderRegistry.agentIds);
+    return;
+  }
+
   const feedback = { canvas: svgToDataUrl(buildCanvas()) };
   for (const id of encoderRegistry.agentIds) {
     const dial = streamDeck.actions.getActionById(id) as any;
-    if (dial) {
-      void dial.setFeedbackLayout(PIXMAP_LAYOUT).catch(() => {});
-      void dial.setFeedback(feedback).catch(() => {});
-    }
+    if (dial) void dial.setFeedback(feedback).catch(() => {});
   }
 }
 
 function buildCanvas(): string {
-  if (!isDaemonConnected()) return renderOfflineTouchStrip(2);
-
   const entry = state.current();
   const entries = state.getEntries();
   // The page name leads, because tapping to swap pages is the one interaction
@@ -184,6 +194,7 @@ export class AgentDialAction extends SingletonAction {
     if (!encoderRegistry.agentIds.includes(ev.action.id)) {
       encoderRegistry.agentIds.push(ev.action.id);
     }
+    rememberEncoderColumn(ev.action.id, (ev.payload as any).coordinates?.column);
     if (dimActionIfNeeded(ev.action, 'Encoder')) return;
     refreshAgentDials();
   }
@@ -230,6 +241,7 @@ export class AgentDialAction extends SingletonAction {
   }
 
   override onWillDisappear(ev: WillDisappearEvent): void {
+    forgetEncoderColumn(ev.action.id);
     const idx = encoderRegistry.agentIds.indexOf(ev.action.id);
     if (idx !== -1) encoderRegistry.agentIds.splice(idx, 1);
     if (encoderRegistry.agentIds.length === 0) stopSeeking();

@@ -23,6 +23,28 @@ export const encoderRegistry = {
   agentIds: [] as string[],        // Model + permission-mode dial (unassigned by default)
 };
 
+// ─── Physical encoder position ───────────────────────────────────────────
+// The OFFLINE banner is one 800px design split into four 200px slices, one per
+// encoder. Which slice an action draws used to be a constant per action file,
+// which is only correct while every dial sits in its default slot: put the
+// effort dial on E1 and the agent dial on E3 and the strip renders 1,1,2,3 —
+// the same slice twice, and the brand mark missing. The column comes from the
+// action's own willAppear coordinates, so it is right wherever the user drags it.
+const encoderColumns = new Map<string, number>();
+
+export function rememberEncoderColumn(id: string, column: number | undefined): void {
+  if (typeof column === 'number') encoderColumns.set(id, column);
+}
+
+export function forgetEncoderColumn(id: string): void {
+  encoderColumns.delete(id);
+}
+
+/** Which 200px slice of the offline banner this encoder shows. */
+export function offlineSliceFor(id: string): number {
+  return encoderColumns.get(id) ?? 0;
+}
+
 // ─── Daemon connection state (shared with all four encoder dials) ────────
 // The encoder OFFLINE banner (renderOfflineTouchStrip) is an all-or-nothing
 // 800px design across 4 encoders, and its messaging ("launch the app") is only

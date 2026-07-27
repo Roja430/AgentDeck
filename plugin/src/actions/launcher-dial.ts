@@ -25,10 +25,15 @@ import streamDeck, {
   WillDisappearEvent,
   DidReceiveSettingsEvent,
 } from '@elgato/streamdeck';
-import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
+import {
+  encoderRegistry,
+  isDaemonConnected,
+  rememberEncoderColumn,
+  forgetEncoderColumn,
+} from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderLauncher, renderLauncherEmpty, type LauncherRenderData } from '../renderers/launcher-renderer.js';
-import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
+import { paintOfflineBanner } from '../offline-banner.js';
 import { dlog, dinfo, dwarn } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
@@ -87,11 +92,7 @@ export function refreshLauncherDials(): void {
   if (isDisplayDimmed()) return;
   if (!isDaemonConnected()) {
     ensurePixmapLayout();
-    const canvasFeedback = { canvas: svgToDataUrl(renderOfflineTouchStrip(3)) };
-    for (const id of encoderRegistry.launcherIds) {
-      const dial = streamDeck.actions.getActionById(id) as any;
-      if (dial) void dial.setFeedback(canvasFeedback).catch(() => {});
-    }
+    paintOfflineBanner(encoderRegistry.launcherIds);
     return;
   }
 
@@ -128,6 +129,7 @@ export class LauncherDialAction extends SingletonAction {
     if (!encoderRegistry.launcherIds.includes(ev.action.id)) {
       encoderRegistry.launcherIds.push(ev.action.id);
     }
+    rememberEncoderColumn(ev.action.id, (ev.payload as any).coordinates?.column);
     settings = (ev.payload?.settings ?? {}) as LauncherSettings;
     if (dimActionIfNeeded(ev.action, 'Encoder')) return;
     refreshLauncherDials();
@@ -178,6 +180,7 @@ export class LauncherDialAction extends SingletonAction {
   }
 
   override onWillDisappear(ev: WillDisappearEvent): void {
+    forgetEncoderColumn(ev.action.id);
     const idx = encoderRegistry.launcherIds.indexOf(ev.action.id);
     if (idx !== -1) {
       encoderRegistry.launcherIds.splice(idx, 1);

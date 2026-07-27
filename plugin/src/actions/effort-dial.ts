@@ -22,10 +22,15 @@ import streamDeck, {
   WillDisappearEvent,
 } from '@elgato/streamdeck';
 import { State } from '@agentdeck/shared';
-import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
+import {
+  encoderRegistry,
+  isDaemonConnected,
+  rememberEncoderColumn,
+  forgetEncoderColumn,
+} from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderEffortDial } from '../renderers/effort-dial-renderer.js';
-import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
+import { paintOfflineBanner } from '../offline-banner.js';
 import { dlog } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { EFFORT_LEVELS, indexOfLevel, stepLevel } from '../effort-levels.js';
@@ -94,28 +99,31 @@ function refreshEffortDials(): void {
   if (isDisplayDimmed()) return;
   if (encoderRegistry.effortIds.length === 0) return;
 
+  for (const id of encoderRegistry.effortIds) {
+    const dial = streamDeck.actions.getActionById(id) as any;
+    if (dial) void dial.setFeedbackLayout(PIXMAP_LAYOUT).catch(() => {});
+  }
+
+  if (!isDaemonConnected()) {
+    paintOfflineBanner(encoderRegistry.effortIds);
+    return;
+  }
+
   const feedback = {
-    canvas: svgToDataUrl(
-      isDaemonConnected()
-        ? renderEffortDial({
-          // While being turned the dial must answer "what will pressing do", so
-          // it shows the staged level. At rest it shows what the agent reports —
-          // and nothing (the renderer's "—") when the agent has not said, rather
-          // than inventing a level it might not be running.
-          effortLevel: adjusting ? EFFORT_LEVELS[cursor] : effortLevel,
-          modelName,
-          idle: sessionState === State.IDLE,
-          adjusting,
-        })
-        : renderOfflineTouchStrip(1),
-    ),
+    canvas: svgToDataUrl(renderEffortDial({
+      // While being turned the dial must answer "what will pressing do", so it
+      // shows the staged level. At rest it shows what the agent reports — and
+      // nothing (the renderer's "—") when the agent has not said, rather than
+      // inventing a level it might not be running.
+      effortLevel: adjusting ? EFFORT_LEVELS[cursor] : effortLevel,
+      modelName,
+      idle: sessionState === State.IDLE,
+      adjusting,
+    })),
   };
   for (const id of encoderRegistry.effortIds) {
     const dial = streamDeck.actions.getActionById(id) as any;
-    if (dial) {
-      void dial.setFeedbackLayout(PIXMAP_LAYOUT).catch(() => {});
-      void dial.setFeedback(feedback).catch(() => {});
-    }
+    if (dial) void dial.setFeedback(feedback).catch(() => {});
   }
 }
 
@@ -132,6 +140,7 @@ export class EffortDialAction extends SingletonAction {
     if (!encoderRegistry.effortIds.includes(ev.action.id)) {
       encoderRegistry.effortIds.push(ev.action.id);
     }
+    rememberEncoderColumn(ev.action.id, (ev.payload as any).coordinates?.column);
     if (dimActionIfNeeded(ev.action, 'Encoder')) return;
     refreshEffortDials();
   }
@@ -173,6 +182,7 @@ export class EffortDialAction extends SingletonAction {
   }
 
   override onWillDisappear(ev: WillDisappearEvent): void {
+    forgetEncoderColumn(ev.action.id);
     const idx = encoderRegistry.effortIds.indexOf(ev.action.id);
     if (idx !== -1) encoderRegistry.effortIds.splice(idx, 1);
   }

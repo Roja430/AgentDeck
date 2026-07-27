@@ -19,13 +19,18 @@ import streamDeck, {
   WillDisappearEvent,
   TouchTapEvent,
 } from '@elgato/streamdeck';
-import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
+import {
+  encoderRegistry,
+  isDaemonConnected,
+  rememberEncoderColumn,
+  forgetEncoderColumn,
+} from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderUsageEncoderBoth, renderUsageEncoderSingle } from '../renderers/usage-gauge.js';
 import { renderUsageSession } from '../renderers/usage-dial-renderer.js';
 import { type UsageModeData, updateUsageModeData, getUsageModeData, fireUsageRefresh, buildCodexUsageEncoder } from '../utility-modes/usage.js';
 import type { ConnectionManager } from '../connection-manager.js';
-import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
+import { paintOfflineBanner } from '../offline-banner.js';
 import { dlog, dinfo } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
@@ -83,7 +88,7 @@ function refreshUsageDials(): void {
 
   // Offline banner is highest priority and all-or-nothing across the 4 encoders.
   if (!isDaemonConnected()) {
-    setCanvasFeedback(renderOfflineTouchStrip(2));
+    paintOfflineBanner(encoderRegistry.usageIds);
     return;
   }
 
@@ -117,6 +122,7 @@ export class UsageDialAction extends SingletonAction {
     if (!encoderRegistry.usageIds.includes(ev.action.id)) {
       encoderRegistry.usageIds.push(ev.action.id);
     }
+    rememberEncoderColumn(ev.action.id, (ev.payload as any).coordinates?.column);
     currentLayout = PIXMAP_LAYOUT;
     if (dimActionIfNeeded(ev.action, 'Encoder')) return;
     fireUsageRefresh();
@@ -154,6 +160,7 @@ export class UsageDialAction extends SingletonAction {
 
   override onWillDisappear(ev: WillDisappearEvent): void {
     dinfo('CodexUsageDial', `onWillDisappear: id=${ev.action.id}`);
+    forgetEncoderColumn(ev.action.id);
     const idx = encoderRegistry.usageIds.indexOf(ev.action.id);
     if (idx !== -1) {
       encoderRegistry.usageIds.splice(idx, 1);

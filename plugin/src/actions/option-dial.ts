@@ -19,12 +19,17 @@ import streamDeck, {
   WillDisappearEvent,
 } from '@elgato/streamdeck';
 import type { AgentLink } from '../agent-link.js';
-import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
+import {
+  encoderRegistry,
+  isDaemonConnected,
+  rememberEncoderColumn,
+  forgetEncoderColumn,
+} from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderUsageEncoderBoth, renderUsageEncoderSingle } from '../renderers/usage-gauge.js';
 import { renderUsageSession, renderUsageCost, renderUsageCache } from '../renderers/usage-dial-renderer.js';
 import { type UsageModeData, updateUsageModeData, getUsageModeData, fireUsageRefresh, buildClaudeUsageEncoder } from '../utility-modes/usage.js';
-import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
+import { paintOfflineBanner } from '../offline-banner.js';
 import { dlog } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
@@ -89,7 +94,7 @@ function refreshClaudeUsageDials(): void {
   // Offline banner is highest priority and all-or-nothing across the 4 encoders.
   // Gate on real daemon-down, NOT a transient session-level state.
   if (!isDaemonConnected()) {
-    setCanvasFeedback(renderOfflineTouchStrip(1));
+    paintOfflineBanner(encoderRegistry.optionIds);
     return;
   }
 
@@ -119,6 +124,7 @@ export class ResponseDialAction extends SingletonAction {
     if (!encoderRegistry.optionIds.includes(ev.action.id)) {
       encoderRegistry.optionIds.push(ev.action.id);
     }
+    rememberEncoderColumn(ev.action.id, (ev.payload as any).coordinates?.column);
     currentLayout = PIXMAP_LAYOUT;
     // An encoder that appears while the host display is already asleep never
     // saw the sleep edge, so blank it here instead of drawing usage.
@@ -157,6 +163,7 @@ export class ResponseDialAction extends SingletonAction {
   }
 
   override onWillDisappear(ev: WillDisappearEvent): void {
+    forgetEncoderColumn(ev.action.id);
     const idx = encoderRegistry.optionIds.indexOf(ev.action.id);
     if (idx !== -1) {
       encoderRegistry.optionIds.splice(idx, 1);

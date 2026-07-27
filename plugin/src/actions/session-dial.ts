@@ -22,10 +22,15 @@ import streamDeck, {
   WillDisappearEvent,
 } from '@elgato/streamdeck';
 import type { SessionInfo } from '@agentdeck/shared';
-import { encoderRegistry, isDaemonConnected } from '../encoder-registry.js';
+import {
+  encoderRegistry,
+  isDaemonConnected,
+  rememberEncoderColumn,
+  forgetEncoderColumn,
+} from '../encoder-registry.js';
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderSessionDial } from '../renderers/session-dial-renderer.js';
-import { renderOfflineTouchStrip } from '../renderers/session-slot-renderer.js';
+import { paintOfflineBanner } from '../offline-banner.js';
 import { SessionDialState } from '../session-dial-state.js';
 import { dlog } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
@@ -61,23 +66,26 @@ function refreshSessionDials(): void {
   if (isDisplayDimmed()) return;
   if (encoderRegistry.sessionNavIds.length === 0) return;
 
+  for (const id of encoderRegistry.sessionNavIds) {
+    const dial = streamDeck.actions.getActionById(id) as any;
+    if (dial) void dial.setFeedbackLayout(PIXMAP_LAYOUT).catch(() => {});
+  }
+
+  if (!isDaemonConnected()) {
+    paintOfflineBanner(encoderRegistry.sessionNavIds);
+    return;
+  }
+
   const feedback = {
-    canvas: svgToDataUrl(
-      isDaemonConnected()
-        ? renderSessionDial({
-          sessions: state.getSessions(),
-          cursor: state.getCursor(),
-          focusedId: state.getFocusedId(),
-        })
-        : renderOfflineTouchStrip(1),
-    ),
+    canvas: svgToDataUrl(renderSessionDial({
+      sessions: state.getSessions(),
+      cursor: state.getCursor(),
+      focusedId: state.getFocusedId(),
+    })),
   };
   for (const id of encoderRegistry.sessionNavIds) {
     const dial = streamDeck.actions.getActionById(id) as any;
-    if (dial) {
-      void dial.setFeedbackLayout(PIXMAP_LAYOUT).catch(() => {});
-      void dial.setFeedback(feedback).catch(() => {});
-    }
+    if (dial) void dial.setFeedback(feedback).catch(() => {});
   }
 }
 
@@ -89,6 +97,7 @@ export class SessionDialAction extends SingletonAction {
     if (!encoderRegistry.sessionNavIds.includes(ev.action.id)) {
       encoderRegistry.sessionNavIds.push(ev.action.id);
     }
+    rememberEncoderColumn(ev.action.id, (ev.payload as any).coordinates?.column);
     if (dimActionIfNeeded(ev.action, 'Encoder')) return;
     refreshSessionDials();
   }
@@ -123,6 +132,7 @@ export class SessionDialAction extends SingletonAction {
   }
 
   override onWillDisappear(ev: WillDisappearEvent): void {
+    forgetEncoderColumn(ev.action.id);
     const idx = encoderRegistry.sessionNavIds.indexOf(ev.action.id);
     if (idx !== -1) encoderRegistry.sessionNavIds.splice(idx, 1);
   }
