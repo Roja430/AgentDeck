@@ -55,6 +55,17 @@ describe('renderOptionStrip', () => {
     expect(renderOptionStrip(0, view)).toContain('2/2');
   });
 
+  it('gives the question the full width instead of one encoder', () => {
+    // Confined to E1's 200px it clipped at ~24 characters, and "Do you want to
+    // overwrit…" does not say what is being approved.
+    const long = 'Do you want to overwrite test.txt in the AgentDeck project?';
+    expect(renderOptionStrip(0, { ...view, question: long })).toContain(long);
+  });
+
+  it('falls back to a prompt when the agent supplied no question', () => {
+    expect(renderOptionStrip(0, { ...view, question: undefined })).toContain('選択してください');
+  });
+
   it('says where to answer when the session cannot be answered from here', () => {
     const svg = renderOptionStrip(0, { ...view, answerable: false });
     expect(svg).toContain('ターミナルで回答');
