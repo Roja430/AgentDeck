@@ -3111,6 +3111,41 @@ describe('OutputParser', () => {
 
   // === Effort Level Parsing ===
 
+  describe('options drawn without a separator', () => {
+    // A redraw can leave the dot off some rows: a real permission prompt arrived
+    // as '❯ 1 Yes' / '2 Yes, allow all edits…' / '3. No', and requiring the
+    // separator kept only the third — every surface could decline, none could
+    // approve.
+    it('takes the dot-less rows when a separated row anchors the list', () => {
+      const p = armParser();
+      const events = collectEvents(p, 'permission_prompt');
+      p.feed('  1 Yes\n  2 Yes, allow all edits during this session\n  3. No\n');
+      vi.advanceTimersByTime(200);
+      expect(events).toHaveLength(1);
+      expect(events[0].options.map((o: PromptOption) => o.label))
+        .toEqual(['Yes', 'Yes, allow all edits during this session', 'No']);
+    });
+
+    it('keeps the indices the numbers state, not the order they arrived', () => {
+      // The deck answers with an index; reading it off position instead of the
+      // printed number would pick the wrong option whenever a row is dropped.
+      const p = armParser();
+      const events = collectEvents(p, 'permission_prompt');
+      p.feed('  1 Yes\n  3. No\n');
+      vi.advanceTimersByTime(200);
+      expect(events[0].options.map((o: PromptOption) => o.index)).toEqual([0, 2]);
+    });
+
+    it('does not invent options from prose that merely starts with a digit', () => {
+      // Without a separated row to anchor it, '3 files changed' is just text.
+      const p = armParser();
+      const events = collectEvents(p, 'permission_prompt');
+      p.feed('Summary:\n3 files changed\n12 insertions\n');
+      vi.advanceTimersByTime(200);
+      expect(events).toEqual([]);
+    });
+  });
+
   describe('effort level parsing', () => {
     // Real PTY patterns from Claude Code /model UI:
     // During selection: "▌ High effort ← → to adjust"

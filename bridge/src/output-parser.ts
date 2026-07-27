@@ -1034,7 +1034,17 @@ export class OutputParser extends EventEmitter {
     // Backward scan: restrict to the last contiguous block of option lines.
     // This prevents stale numbered list items (e.g. "5. Deploy") from earlier in the
     // buffer being included as ghost options when a real option prompt follows.
-    const optLineRe = /^\s*❯?\s*\d{1,2}[.)]\s*.+|^\s*[►▸●○]\s+.+/;
+    // Claude Code does not always redraw the separator after the number. A real
+    // permission prompt arrived as "❯ 1 Yes" / "2 Yes, allow all edits…" /
+    // "3. No" — so requiring the dot kept only the third, leaving every surface
+    // able to decline and unable to approve.
+    //
+    // The loose form is only honoured inside a block that also contains a
+    // properly separated option (`sawStrictOption` below). On its own it would
+    // match ordinary prose like "3 files changed".
+    const strictOptLineRe = /^\s*❯?\s*\d{1,2}[.)]\s*.+|^\s*[►▸●○]\s+.+/;
+    const looseOptLineRe = /^\s*❯?\s*\d{1,2}\s+\S.*/;
+    const optLineRe = { test: (l: string) => strictOptLineRe.test(l) || looseOptLineRe.test(l) };
     const allLines = normalized.split('\n');
     let blockEnd = allLines.length;
     // Skip trailing non-option lines (footer like "ctrl-g to edit in VS Code")
@@ -1075,6 +1085,9 @@ export class OutputParser extends EventEmitter {
       }
     }
     const lines = foundOption ? allLines.slice(blockStart, blockEnd) : allLines;
+    // A separated option anchors the block as a real list; without one, a
+    // dot-less number is just text that happens to start with a digit.
+    const sawStrictOption = lines.some((l) => strictOptLineRe.test(l));
 
     let navigable = false;
     let cursorIndex = 0;
@@ -1088,7 +1101,8 @@ export class OutputParser extends EventEmitter {
     const cursorLocked = new Set<number>();
     for (const line of lines) {
       const hasCursor = /^\s*❯/.test(line);
-      const nm = line.match(/^\s*❯?\s*(\d{1,2})[.)]\s*(.+)/);
+      const nm = line.match(/^\s*❯?\s*(\d{1,2})[.)]\s*(.+)/)
+        ?? (sawStrictOption ? line.match(/^\s*❯?\s*(\d{1,2})\s+(\S.*)/) : null);
       if (nm) {
         const idx = parseInt(nm[1], 10) - 1;
         if (!hasCursor && cursorLocked.has(idx)) continue;
