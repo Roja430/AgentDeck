@@ -55,6 +55,23 @@ past a detent for blanket approval to be a one-flick decision.
 LCD, each with its own cursor. Tapping has no visual affordance of its own, so
 the page name leads the LCD rather than being left implicit.
 
+### Bundled profiles are not declared in the manifest
+
+The `.streamDeckProfile` bundles still ship in the plugin folder, but the
+manifest's `Profiles` array is gone. With it present, a **dev-linked** plugin
+makes Stream Deck put up "this plugin contains preconfigured profiles — install
+them?" on *every* app start, forever: it never records that they were installed.
+Verified by restarting the app and counting its visible windows — two (main +
+modal) with the array present, one without. `AutoInstall: false` does not help;
+the declaration alone is the trigger.
+
+Cost of removing it: `switchToProfile` only accepts profiles the manifest
+declares, so the plugin can no longer pull the deck onto its own profile when a
+Stream Deck+ connects. In practice the profile stays selected across restarts,
+and the profile itself installs and works exactly as before. Restore the array
+if the plugin is ever packaged and distributed normally — a packaged install
+records the profiles and prompts once.
+
 **Commands must be added to `ROUTED_COMMANDS` in `session-focus-relay.ts`.**
 That set is an allowlist and an unlisted command is discarded silently — the
 deck sends, the daemon drops it, the terminal shows nothing and no log records

@@ -203,28 +203,5 @@
   "Nodejs": {
     "Version": "20"
   },
-  "Profiles": [
-    {
-      "Name": "agentdeck-sdplus",
-      "DeviceType": 7,
-      "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": false,
-      "Readonly": false
-    },
-    {
-      "Name": "agentdeck-sd",
-      "DeviceType": 0,
-      "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": false,
-      "Readonly": false
-    },
-    {
-      "Name": "agentdeck-sdmini",
-      "DeviceType": 1,
-      "AutoInstall": true,
-      "DontAutoSwitchWhenInstalled": false,
-      "Readonly": false
-    }
-  ],
   "Version": "1.0.2.0"
 }
