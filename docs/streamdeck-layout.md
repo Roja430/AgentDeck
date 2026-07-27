@@ -55,6 +55,34 @@ past a detent for blanket approval to be a one-flick decision.
 LCD, each with its own cursor. Tapping has no visual affordance of its own, so
 the page name leads the LCD rather than being left implicit.
 
+### AWAITING encoder takeover
+
+While the focused session holds for an answer, E1–E4 stop being themselves and
+become one option list: E1 carries the question and the position counter, E2–E4
+the rows. Rotating **any** dial moves the cursor and pressing **any** dial
+confirms — binding it to one encoder would leave three inert with nothing on
+screen to say which is live.
+
+The keypad keeps its option keys. The two are different views of the same
+`FocusedDetailSnapshot`, fed from `renderFocusedDetail`, so they cannot disagree
+about what is on offer. They are good at different things: a key answers in one
+press but wraps to two lines of ~13 characters, while a strip row has the full
+600px of E2–E4 and scrolls past the keypad's 5-per-page limit.
+
+Three rules the implementation depends on:
+
+- **A press must be able to answer.** Observed sessions only have a response
+  channel when the daemon surfaced a `requestId`; their AskUserQuestion options
+  are mirrored for reading, and the strip says so instead of accepting a press.
+- **The cursor clamps, never wraps.** One overshoot on a two-option permission
+  prompt would otherwise select the opposite answer.
+- **Exit must clear the paint memo.** `dial-paint` skips unchanged canvases, so
+  a dial repainting its own content after the takeover would be treated as a
+  no-op and the strip would stay up.
+
+Auto-focus fires only when exactly one session is awaiting. With two, focusing
+either would hand the dials to a prompt the user did not choose.
+
 ### Bundled profiles are not declared in the manifest
 
 The `.streamDeckProfile` bundles still ship in the plugin folder, but the

@@ -40,6 +40,11 @@ import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
 import { buildEntriesWithProjects, rollIndex, runTarget } from '../launch-targets.js';
 
 import type { JsonValue } from '@elgato/utils';
+import {
+  isTakeoverActive,
+  handleTakeoverRotate,
+  handleTakeoverPress,
+} from '../encoder-takeover.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
@@ -90,6 +95,7 @@ function ensurePixmapLayout(): void {
 
 export function refreshLauncherDials(): void {
   if (isDisplayDimmed()) return;
+  if (isTakeoverActive()) return;
   if (!isDaemonConnected()) {
     ensurePixmapLayout();
     paintOfflineBanner(encoderRegistry.launcherIds);
@@ -141,6 +147,7 @@ export class LauncherDialAction extends SingletonAction {
   }
 
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverRotate(ev.payload.ticks); return; }
     if (!isDaemonConnected()) return;
 
     const list = entries();
@@ -152,6 +159,7 @@ export class LauncherDialAction extends SingletonAction {
   }
 
   override async onDialDown(ev: DialDownEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverPress(); return; }
     if (!isDaemonConnected()) {
       void openAgentDeckAppOrGitHub().catch(() => {});
       return;

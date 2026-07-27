@@ -38,6 +38,11 @@ import {
   HAS_OSASCRIPT,
 } from '../utility-modes/macos.js';
 import { paintOfflineBanner } from '../offline-banner.js';
+import {
+  isTakeoverActive,
+  handleTakeoverRotate,
+  handleTakeoverPress,
+} from '../encoder-takeover.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
@@ -116,6 +121,7 @@ function ensurePixmapLayout(): void {
 export function refreshUtilityDials(): void {
   // The volume poll timer keeps firing while the host display sleeps.
   if (isDisplayDimmed()) return;
+  if (isTakeoverActive()) return;
   // Offline banner is highest priority and all-or-nothing across the encoders.
   // Gate on real daemon-down, NOT session-level currentState === DISCONNECTED
   // (which flips transiently during multi-session switching while the daemon is up).
@@ -161,6 +167,7 @@ export class UtilityDialAction extends SingletonAction {
   }
 
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverRotate(ev.payload.ticks); return; }
     if (!isDaemonConnected()) return;
 
     // Rotation is high-frequency: the underlying setter is debounced and
@@ -175,6 +182,7 @@ export class UtilityDialAction extends SingletonAction {
   }
 
   override async onDialDown(ev: DialDownEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverPress(); return; }
     if (!isDaemonConnected()) {
       void openAgentDeckAppOrGitHub().catch(() => {});
       return;

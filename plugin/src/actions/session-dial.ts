@@ -35,6 +35,11 @@ import { SessionDialState } from '../session-dial-state.js';
 import { dlog } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
+import {
+  isTakeoverActive,
+  handleTakeoverRotate,
+  handleTakeoverPress,
+} from '../encoder-takeover.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
@@ -64,6 +69,7 @@ export function refreshSessionDial(): void {
 
 function refreshSessionDials(): void {
   if (isDisplayDimmed()) return;
+  if (isTakeoverActive()) return;
   if (encoderRegistry.sessionNavIds.length === 0) return;
 
   for (const id of encoderRegistry.sessionNavIds) {
@@ -103,6 +109,7 @@ export class SessionDialAction extends SingletonAction {
   }
 
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverRotate(ev.payload.ticks); return; }
     if (!isDaemonConnected()) return;
     state.rotate(ev.payload.ticks);
     dlog('SessionDial', `rotate → ${state.getCursor() + 1}/${state.getSessions().length} ${state.current()?.id ?? '-'}`);
@@ -110,6 +117,7 @@ export class SessionDialAction extends SingletonAction {
   }
 
   override async onDialDown(_ev: DialDownEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverPress(); return; }
     if (!isDaemonConnected()) {
       void openAgentDeckAppOrGitHub().catch(() => {});
       return;
@@ -122,6 +130,7 @@ export class SessionDialAction extends SingletonAction {
   }
 
   override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
+    if (isTakeoverActive()) return;
     if (!isDaemonConnected()) {
       void openAgentDeckAppOrGitHub().catch(() => {});
       return;

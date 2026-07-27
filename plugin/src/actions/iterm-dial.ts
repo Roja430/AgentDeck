@@ -34,6 +34,11 @@ import { paintDialCanvas, forgetDialCanvas } from '../dial-paint.js';
 import { dlog, dinfo } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
+import {
+  isTakeoverActive,
+  handleTakeoverRotate,
+  handleTakeoverPress,
+} from '../encoder-takeover.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
@@ -79,6 +84,7 @@ function setCanvasFeedback(svg: string): void {
 function refreshUsageDials(): void {
   // See option-dial: usage ticks must not undo display-sleep blanking.
   if (isDisplayDimmed()) return;
+  if (isTakeoverActive()) return;
   if (encoderRegistry.usageIds.length === 0) return;
   ensurePixmapLayout();
 
@@ -126,6 +132,7 @@ export class UsageDialAction extends SingletonAction {
   }
 
   override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
+    if (isTakeoverActive()) return;
     if (!isDaemonConnected()) {
       void openAgentDeckAppOrGitHub().catch(() => {});
       return;
@@ -133,6 +140,7 @@ export class UsageDialAction extends SingletonAction {
   }
 
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverRotate(ev.payload.ticks); return; }
     if (!isDaemonConnected()) return;
     // Rotation cycles the usage view (both → 5h → 7d → session).
     const dir = ev.payload.ticks >= 0 ? 1 : -1;
@@ -142,6 +150,7 @@ export class UsageDialAction extends SingletonAction {
   }
 
   override async onDialDown(_ev: DialDownEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverPress(); return; }
     if (!isDaemonConnected()) {
       void openAgentDeckAppOrGitHub().catch(() => {});
       return;

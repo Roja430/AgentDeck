@@ -37,6 +37,11 @@ import { paintOfflineBanner } from '../offline-banner.js';
 import { AgentDialState, MAX_MODE_STEPS } from '../agent-dial-state.js';
 import { dlog, dinfo, dwarn } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
+import {
+  isTakeoverActive,
+  handleTakeoverRotate,
+  handleTakeoverPress,
+} from '../encoder-takeover.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 /** Long enough to clear the adapter's 100ms Shift+Tab debounce and see the result. */
@@ -135,6 +140,7 @@ function stepMode(): void {
 
 function refreshAgentDials(): void {
   if (isDisplayDimmed()) return;
+  if (isTakeoverActive()) return;
   if (encoderRegistry.agentIds.length === 0) return;
 
   for (const id of encoderRegistry.agentIds) {
@@ -200,6 +206,7 @@ export class AgentDialAction extends SingletonAction {
   }
 
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverRotate(ev.payload.ticks); return; }
     if (!isDaemonConnected()) return;
     // Local only. Nothing reaches the agent until the press, so spinning past
     // an entry never changes the model a running turn is using.
@@ -209,6 +216,7 @@ export class AgentDialAction extends SingletonAction {
   }
 
   override async onDialDown(ev: DialDownEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverPress(); return; }
     if (!isDaemonConnected()) return;
     const entry = state.current();
     if (!entry) return;
@@ -232,6 +240,7 @@ export class AgentDialAction extends SingletonAction {
 
   /** Swap between the model page and the mode page. */
   override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
+    if (isTakeoverActive()) return;
     if (!isDaemonConnected()) return;
     // A page swap must not leave a mode hunt running against the page the user
     // just left.

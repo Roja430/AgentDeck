@@ -79,6 +79,8 @@ import {
   refreshSessionSlots,
 } from './actions/session-slot-button.js';
 import { isDisplayDimmed, setDisplayDimmed, dimActionIfNeeded } from './display-dim.js';
+import { initEncoderTakeover, syncEncoderTakeover, resetEncoderTakeover } from './encoder-takeover.js';
+import { soleAwaitingSession } from './encoder-takeover-state.js';
 import { FocusedDetailState, type FocusedDetailSnapshot } from './focused-detail-state.js';
 
 // ---- Shared state ----
@@ -90,6 +92,16 @@ let proxiedAgentType: AgentType | null = null;
 const focusedDetailState = new FocusedDetailState();
 
 function renderFocusedDetail(snapshot: FocusedDetailSnapshot): void {
+  // Both surfaces are driven from this one snapshot. Giving the encoders their
+  // own copy of the options is what would let the two disagree about what is on
+  // offer, so they are fed here rather than from a separate event path.
+  syncEncoderTakeover({
+    sessionId: snapshot.sessionId,
+    state: snapshot.state,
+    options: snapshot.options,
+    question: snapshot.question,
+    session: getFocusedSession(),
+  });
   updateDetailViewState(
     snapshot.state,
     snapshot.options,
@@ -136,6 +148,10 @@ const connMgr = new ConnectionManager();
 initOptionDial(connMgr);
 initEffortDial(sendFocusedSessionCommand);
 initAgentDial(sendFocusedSessionCommand);
+initEncoderTakeover({
+  selectOption: (index) => sendFocusedSessionCommand({ type: 'select_option', index }),
+  restoreDials: () => repaintAllDials(),
+});
 initSessionDial({
   focus: (sessionId) => {
     // Same path the keypad takes, so the dial and the keys cannot disagree
@@ -368,6 +384,9 @@ connMgr.on('connection', (ev: ConnectionEvent) => {
     focusedDetailState.clear();
     currentState = State.DISCONNECTED;
     currentOptions = [];
+    // Drop the takeover explicitly: no further snapshot is coming to turn it
+    // off, so the dials would keep showing a prompt nobody can answer.
+    resetEncoderTakeover();
     broadcastStateUpdate();
   }
   // 'connected' case: state_update (sent before connection event) already
@@ -382,6 +401,20 @@ connMgr.on('sessions_list', (ev: SessionsListEvent) => {
   updateSessionSlotSessions(ev.sessions);
   updateSessionDialSessions(ev.sessions, getFocusedSession()?.id);
   updateLauncherProjects(ev.recentProjects ?? []);
+
+  // A prompt is only answerable from the dials once its session is focused, and
+  // asking the user to go find it defeats the point of surfacing it. Focus it
+  // for them — but only when exactly one session is waiting, since with two the
+  // deck would be choosing whose prompt gets the dials.
+  if (!isInDetailView()) {
+    const sole = soleAwaitingSession(ev.sessions);
+    if (sole) {
+      dinfo('Plugin', `auto-focus ${sole.id} — sole awaiting session`);
+      getSessionSlotManager().enterDetailView(sole.id);
+      connMgr.focusSession(sole.id);
+      primeDetailViewFromSession(sole);
+    }
+  }
 
   // The steering dials read the focused session from here as well as from
   // state_update. sessions_list is polled, so it keeps reporting an idle
@@ -533,12 +566,18 @@ function broadcastStateUpdate(): void {
 
   dlog('Plugin', `broadcast: state=${currentState} mode=${currentMode} opts=${currentOptions.length}`);
 
-  // Phase 2 SD+ encoder roles are fixed: E1 utility, E2 Claude usage, E3 Codex
-  // usage, E4 launcher. None get commandeered for AWAITING anymore — option /
-  // permission selection lives on the keypad detail view (session-slot), which
-  // is driven by updateDetailViewState. The encoders are permanent; we still
-  // repaint them here so display-wake restores them. (Each refresh is a no-op
-  // SVG redraw and self-gates on daemon-down.)
+  // Encoder roles are per-action and the user places them; the takeover is the
+  // one thing that overrides them, and only while the focused session holds for
+  // an answer. Each refresh below self-gates on that, on daemon-down, and on
+  // display sleep, so this stays a safe blanket repaint.
+  repaintAllDials();
+  // Keypad slots too — on display wake nothing else will repaint them, since
+  // sessions_list only fires when the session set actually changes.
+  refreshSessionSlots();
+}
+
+/** Repaint every encoder with its own content. Also how the takeover hands back. */
+function repaintAllDials(): void {
   updateLauncherDialState();
   updateUtilityDialState(currentState);
   refreshClaudeUsageDial();
@@ -546,9 +585,6 @@ function broadcastStateUpdate(): void {
   refreshAgentDial();
   refreshSessionDial();
   updateUsageDialState();
-  // Keypad slots too — on display wake nothing else will repaint them, since
-  // sessions_list only fires when the session set actually changes.
-  refreshSessionSlots();
 }
 
 // ---- Register actions ----

@@ -33,6 +33,11 @@ import { paintDialCanvas, forgetDialCanvas } from '../dial-paint.js';
 import { dlog } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
+import {
+  isTakeoverActive,
+  handleTakeoverRotate,
+  handleTakeoverPress,
+} from '../encoder-takeover.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
@@ -84,6 +89,7 @@ function refreshClaudeUsageDials(): void {
   // `usage_update` ticks arrive continuously; without this the LCD would light
   // back up seconds after the host display slept.
   if (isDisplayDimmed()) return;
+  if (isTakeoverActive()) return;
   if (encoderRegistry.optionIds.length === 0) return;
   ensurePixmapLayout();
 
@@ -130,6 +136,7 @@ export class ResponseDialAction extends SingletonAction {
   }
 
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverRotate(ev.payload.ticks); return; }
     if (!isDaemonConnected()) return;
     // Rotation cycles the usage view (both → 5h → 7d → session).
     const dir = ev.payload.ticks >= 0 ? 1 : -1;
@@ -139,6 +146,7 @@ export class ResponseDialAction extends SingletonAction {
   }
 
   override async onDialDown(_ev: DialDownEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverPress(); return; }
     if (!isDaemonConnected()) {
       void openAgentDeckAppOrGitHub().catch(() => {});
       return;
@@ -152,6 +160,7 @@ export class ResponseDialAction extends SingletonAction {
   }
 
   override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
+    if (isTakeoverActive()) return;
     if (!isDaemonConnected()) {
       void openAgentDeckAppOrGitHub().catch(() => {});
       return;

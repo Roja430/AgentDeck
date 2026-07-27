@@ -34,6 +34,11 @@ import { paintOfflineBanner } from '../offline-banner.js';
 import { dlog } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { EFFORT_LEVELS, indexOfLevel, stepLevel } from '../effort-levels.js';
+import {
+  isTakeoverActive,
+  handleTakeoverRotate,
+  handleTakeoverPress,
+} from '../encoder-takeover.js';
 
 const PIXMAP_LAYOUT = 'layouts/encoder-layout.json';
 
@@ -97,6 +102,7 @@ export function refreshEffortDial(): void {
 
 function refreshEffortDials(): void {
   if (isDisplayDimmed()) return;
+  if (isTakeoverActive()) return;
   if (encoderRegistry.effortIds.length === 0) return;
 
   for (const id of encoderRegistry.effortIds) {
@@ -146,6 +152,7 @@ export class EffortDialAction extends SingletonAction {
   }
 
   override async onDialRotate(ev: DialRotateEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverRotate(ev.payload.ticks); return; }
     if (!isDaemonConnected()) return;
     // Local only — the level is applied by the press, so turning the dial while
     // reading the LCD cannot disturb a session.
@@ -158,6 +165,7 @@ export class EffortDialAction extends SingletonAction {
   }
 
   override async onDialDown(ev: DialDownEvent): Promise<void> {
+    if (isTakeoverActive()) { handleTakeoverPress(); return; }
     if (!isDaemonConnected()) return;
     if (!canSteer()) {
       dlog('EffortDial', `press ignored — state=${sessionState ?? 'unknown'}`);
@@ -172,6 +180,7 @@ export class EffortDialAction extends SingletonAction {
 
   /** Abandon a staged level and snap back to what the agent reports. */
   override async onTouchTap(_ev: TouchTapEvent): Promise<void> {
+    if (isTakeoverActive()) return;
     if (!isDaemonConnected() || !adjusting) return;
     // With no reported level there is nothing to snap back to; leaving the
     // cursor where it is beats moving it somewhere the agent never claimed.
