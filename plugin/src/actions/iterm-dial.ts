@@ -25,12 +25,12 @@ import {
   rememberEncoderColumn,
   forgetEncoderColumn,
 } from '../encoder-registry.js';
-import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderUsageEncoderBoth, renderUsageEncoderSingle } from '../renderers/usage-gauge.js';
 import { renderUsageSession } from '../renderers/usage-dial-renderer.js';
 import { type UsageModeData, updateUsageModeData, getUsageModeData, fireUsageRefresh, buildCodexUsageEncoder } from '../utility-modes/usage.js';
 import type { ConnectionManager } from '../connection-manager.js';
 import { paintOfflineBanner } from '../offline-banner.js';
+import { paintDialCanvas, forgetDialCanvas } from '../dial-paint.js';
 import { dlog, dinfo } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
@@ -73,11 +73,7 @@ function ensurePixmapLayout(): void {
 }
 
 function setCanvasFeedback(svg: string): void {
-  const feedback = { canvas: svgToDataUrl(svg) };
-  for (const id of encoderRegistry.usageIds) {
-    const dial = streamDeck.actions.getActionById(id) as any;
-    if (dial) void dial.setFeedback(feedback).catch(() => {});
-  }
+  paintDialCanvas(encoderRegistry.usageIds, svg);
 }
 
 function refreshUsageDials(): void {
@@ -161,6 +157,7 @@ export class UsageDialAction extends SingletonAction {
   override onWillDisappear(ev: WillDisappearEvent): void {
     dinfo('CodexUsageDial', `onWillDisappear: id=${ev.action.id}`);
     forgetEncoderColumn(ev.action.id);
+    forgetDialCanvas(ev.action.id);
     const idx = encoderRegistry.usageIds.indexOf(ev.action.id);
     if (idx !== -1) {
       encoderRegistry.usageIds.splice(idx, 1);
