@@ -126,6 +126,17 @@ Daemon이 Gateway adapter의 `connection` 이벤트를 WS 클라이언트에 포
 - **Terrarium creature focus relay 중복 방지**: Focus relay가 sibling state_update를 broadcast하면 client `state.sessionId`가 sibling id로 바뀌고 `agentType`도 변경됨 → primary 크리처 추가되는데 siblings 리스트에 동일 id가 남아있어 이중 렌더. `TerrariumState.toTerrariumState()`에서 `primaryIsOctopus && $0.id == sessionId` 필터 적용 (octopus/jellyfish/opencode 모두)
 - **MLX mlxModels focus relay override**: focus relay broadcast 핸들러가 modelCatalog/ollamaStatus는 daemon 캐시로 덮어쓰지만 mlxModels는 pass-through → 오래된 sibling bridge(필터 없음)가 nanoLLaVA 리스트 전송 시 깜빡임. Focus relay의 `setBroadcast`에서 `state_update`의 `mlxModels`를 항상 daemon's `cachedMlxModels`로 덮어쓰기
 
+### Focus changes, not focus repeats
+
+Two rules, both learned the hard way:
+
+- **`unfocus()` must keep an `error` listener attached across `close()`.** Closing a socket that has not finished connecting aborts the handshake by *emitting* an error, and an EventEmitter with no `error` listener throws. The old order — `removeAllListeners()` then `close()` — meant that switching focus a moment after the previous focus killed the whole daemon with `WebSocket was closed before the connection was established`.
+- **CONNECTING counts as focused.** Clients legitimately re-send `focus_session` for the session they are already on. Treating that as a change tore down a half-open relay and rebuilt it, leaving a window in which the session's events reached nobody.
+
+**Announce a focus change; never announce a focus repeat.** `broadcastFocusedState()` sends the *daemon's own* snapshot — the daemon runs no agent, so that state is `disconnected` — with `focusedSessionId` attached. It used to fire from every `session_command`, so a user turning a dial produced a stream of DISCONNECTED `state_update`s interleaved with the session's real states: **measured at 12 in 3 seconds for 12 commands, now 0.** Clients that check `agentType === 'daemon'` (the Stream Deck plugin does) discarded them; every other surface flickered. `setUserFocus()` is the only writer that broadcasts, and it returns early when the focus has not moved.
+
+Consequently a `state_update` carrying `agentType: 'daemon'` describes **the daemon**, not the focused session — never render its `state` as the session's.
+
 ## Multi-surface monitoring
 
 - mDNS (`_agentdeck._tcp`, daemon only), auth token (`~/.agentdeck/auth-token`), SSE (`/sse`), remote WS token validation
