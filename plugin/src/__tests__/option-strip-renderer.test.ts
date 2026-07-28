@@ -5,7 +5,13 @@
  * cursor is useless if it can scroll off the panel.
  */
 import { describe, expect, it } from 'vitest';
-import { VISIBLE_ROWS, renderOptionStrip, scrollTopFor } from '../renderers/option-strip-renderer.js';
+import { UI } from '@agentdeck/shared';
+import {
+  VISIBLE_ROWS,
+  classifyOption,
+  renderOptionStrip,
+  scrollTopFor,
+} from '../renderers/option-strip-renderer.js';
 
 describe('scrollTopFor', () => {
   it('does not scroll a list that already fits', () => {
@@ -77,5 +83,86 @@ describe('renderOptionStrip', () => {
     const svg = renderOptionStrip(1, { ...view, labels: ['<script>&"'], cursor: 0 });
     expect(svg).not.toContain('<script>');
     expect(svg).toContain('&lt;script&gt;');
+  });
+});
+
+/**
+ * Colour is the only thing on this panel you can read at a glance, so it has to
+ * mean what it looks like. The failure that matters is painting an approval red
+ * or a refusal green.
+ */
+describe('classifyOption', () => {
+  it('reads the sense from the start of the label, not from anywhere in it', () => {
+    // Claude Code puts the caveat after the answer. Searching the whole string
+    // would find "don't" here and call an approval a refusal.
+    expect(classifyOption("Yes, and don't ask again")).toBe('affirm');
+    expect(classifyOption('No, tell Claude what to do differently')).toBe('deny');
+  });
+
+  it('places the option labels Claude Code actually emits', () => {
+    expect(classifyOption('Yes')).toBe('affirm');
+    expect(classifyOption('Yes, allow all edits during this session (shift+tab)')).toBe('affirm');
+    expect(classifyOption('Yes, I trust this folder')).toBe('affirm');
+    expect(classifyOption('No')).toBe('deny');
+    expect(classifyOption('No, exit')).toBe('deny');
+  });
+
+  it('places Japanese answers', () => {
+    expect(classifyOption('はい')).toBe('affirm');
+    expect(classifyOption('いいえ、やめておく')).toBe('deny');
+  });
+
+  it('leaves anything it cannot place neutral', () => {
+    // An AskUserQuestion choice is not an approval; colouring it green would
+    // assert a meaning it does not have.
+    expect(classifyOption('Use PostgreSQL')).toBe('neutral');
+    expect(classifyOption('')).toBe('neutral');
+  });
+
+  it('does not match a word that merely starts with a sense token', () => {
+    expect(classifyOption('Yesterday’s snapshot')).toBe('neutral');
+    expect(classifyOption('Nothing for now')).toBe('neutral');
+  });
+});
+
+describe('renderOptionStrip colour', () => {
+  const view = (over = {}) => ({
+    question: 'Do you want to make this edit?',
+    labels: ['Yes', 'No'],
+    cursor: 0,
+    answerable: true,
+    ...over,
+  });
+
+  it('paints on true black so the panel reads as unlit', () => {
+    expect(renderOptionStrip(0, view())).toContain('fill="#000000"');
+  });
+
+  it('gives yes green and no red', () => {
+    const svg = renderOptionStrip(0, view());
+    expect(svg).toContain(UI.ok);
+    expect(svg).toContain(UI.error);
+  });
+
+  it('takes the whole strip to the colour of the option under the cursor', () => {
+    // Border and counter included: "about to approve" and "about to refuse"
+    // should differ without reading a word.
+    const onYes = renderOptionStrip(0, view({ cursor: 0 }));
+    const onNo = renderOptionStrip(0, view({ cursor: 1 }));
+    expect(onYes).toContain(`stroke="${UI.ok}"`);
+    expect(onNo).toContain(`stroke="${UI.error}"`);
+  });
+
+  it('leaves an unplaceable option out of the yes/no colouring', () => {
+    const svg = renderOptionStrip(0, view({ labels: ['Use PostgreSQL', 'Use SQLite'] }));
+    expect(svg).not.toContain(UI.ok);
+    expect(svg).not.toContain(UI.error);
+  });
+
+  it('drops the colouring entirely when the press would go nowhere', () => {
+    // Green invites a press; an unanswerable session must not.
+    const svg = renderOptionStrip(0, view({ answerable: false }));
+    expect(svg).not.toContain(UI.ok);
+    expect(svg).not.toContain(UI.error);
   });
 });
