@@ -1,9 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { enrichSessionsWithState, buildEnrichedSessionsList, clearSiblingStateCache } from '../session-aggregator.js';
+import {
+  enrichSessionsWithState,
+  buildEnrichedSessionsList,
+  clearSiblingStateCache,
+  pendingPromptOf,
+  updatePushState,
+} from '../session-aggregator.js';
 import type { SessionEntry } from '../session-registry.js';
 
 vi.mock('../session-registry.js', () => ({
   listActive: vi.fn(() => []),
+}));
+
+// updatePushState fires a desktop notification on the transition into awaiting.
+vi.mock('../desktop-notify.js', () => ({
+  notifyAttention: vi.fn(),
+  clearAttention: vi.fn(),
 }));
 
 import { listActive } from '../session-registry.js';
@@ -266,5 +278,137 @@ describe('session-aggregator', () => {
       state: 'idle',
       modelName: 'opus-4',
     }));
+  });
+});
+
+/**
+ * A prompt is state, not just an event.
+ *
+ * The Stream Deck takeover never engaged for a session whose prompt predated
+ * the deck's focus: the relay only forwards events, and a session parked at an
+ * unanswered prompt emits none. `sessions_list` has to answer "what is this
+ * session waiting for" on its own.
+ */
+describe('pending prompt on the session list', () => {
+  const options = [
+    { index: 0, label: 'Yes' },
+    { index: 1, label: 'No' },
+  ];
+
+  beforeEach(() => {
+    mockListActive.mockReset();
+    vi.restoreAllMocks();
+    clearSiblingStateCache('waiting');
+  });
+
+  it('carries the prompt pushed by a session bridge', async () => {
+    updatePushState('waiting', 'awaiting_permission', 'opus-5', 'high', {
+      question: 'Overwrite test.txt?',
+      options,
+      promptType: 'yes_no',
+    });
+
+    const sessions = await enrichSessionsWithState(
+      [makeSession({ id: 'waiting', port: 9131 })],
+      'own-session',
+      'idle',
+    );
+
+    expect(sessions[0]).toEqual(expect.objectContaining({
+      state: 'awaiting_permission',
+      question: 'Overwrite test.txt?',
+      options,
+      promptType: 'yes_no',
+    }));
+  });
+
+  it('carries the prompt from /health once the push cache goes stale', async () => {
+    // The push channel only fires on change, so a session sitting at the same
+    // prompt for over 30s falls back to polling — which must not lose the
+    // options, or the prompt becomes unanswerable from any device.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      json: async () => ({
+        state: 'awaiting_option',
+        question: 'Which one?',
+        options,
+        promptType: 'multi_select',
+      }),
+    } as Response);
+
+    const sessions = await enrichSessionsWithState(
+      [makeSession({ id: 'polled', port: 9132 })],
+      'own-session',
+      'idle',
+    );
+
+    expect(sessions[0]).toEqual(expect.objectContaining({
+      question: 'Which one?',
+      options,
+      promptType: 'multi_select',
+    }));
+  });
+
+  it('drops the prompt once the session answers it', async () => {
+    updatePushState('waiting', 'awaiting_permission', undefined, undefined, {
+      question: 'Overwrite test.txt?',
+      options,
+      promptType: 'yes_no',
+    });
+    updatePushState('waiting', 'processing');
+
+    const sessions = await enrichSessionsWithState(
+      [makeSession({ id: 'waiting', port: 9131 })],
+      'own-session',
+      'idle',
+    );
+
+    expect(sessions[0].question).toBeUndefined();
+    expect(sessions[0].options).toBeUndefined();
+  });
+
+  it('reports the own session\u2019s prompt in single-session mode', async () => {
+    mockListActive.mockReturnValue([makeSession({ id: 'own-session', port: 9121 })]);
+
+    const sessions = await buildEnrichedSessionsList(
+      'own-session',
+      'awaiting_option',
+      undefined,
+      undefined,
+      { question: 'Which one?', options, promptType: 'multi_select' },
+    );
+
+    expect(sessions[0]).toEqual(expect.objectContaining({ question: 'Which one?', options }));
+  });
+});
+
+describe('pendingPromptOf', () => {
+  it('reports nothing when the agent is not waiting on a choice', () => {
+    expect(pendingPromptOf({ state: 'processing', options: [] })).toEqual({});
+  });
+
+  it('classifies a two-way permission prompt as yes_no', () => {
+    const p = pendingPromptOf({
+      state: 'awaiting_permission',
+      question: 'Allow?',
+      options: [{ index: 0, label: 'Yes' }, { index: 1, label: 'No' }],
+    });
+    expect(p.promptType).toBe('yes_no');
+  });
+
+  it('classifies a permission prompt with an "allow all" row as yes_no_always', () => {
+    const p = pendingPromptOf({
+      state: 'awaiting_permission',
+      options: [
+        { index: 0, label: 'Yes' },
+        { index: 1, label: 'Yes, allow all edits' },
+        { index: 2, label: 'No' },
+      ],
+    });
+    expect(p.promptType).toBe('yes_no_always');
+  });
+
+  it('classifies a diff review as diff_review', () => {
+    const p = pendingPromptOf({ state: 'awaiting_diff', options: [{ index: 0, label: 'Accept' }] });
+    expect(p.promptType).toBe('diff_review');
   });
 });

@@ -13,12 +13,13 @@
 
 import WebSocket from 'ws';
 import { debug } from './logger.js';
+import type { PendingPrompt } from './types.js';
 
 const TAG = 'DaemonWsClient';
 const RECONNECT_BASE = 2000;
 const RECONNECT_MAX = 30000;
 
-export interface SessionPushState {
+export interface SessionPushState extends PendingPrompt {
   type: 'session_push_state';
   sessionId: string;
   state: string;
@@ -79,8 +80,14 @@ export class DaemonWsClient {
     }
   }
 
-  /** Push state update to daemon */
-  pushState(state: string, modelName?: string, effortLevel?: string): void {
+  /**
+   * Push state update to daemon.
+   *
+   * `prompt` carries what the session is blocked on. Always pass it — passing
+   * an empty object is how a session says "no longer waiting", and omitting it
+   * would leave the daemon serving a prompt the user already answered.
+   */
+  pushState(state: string, modelName?: string, effortLevel?: string, prompt: PendingPrompt = {}): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const msg: SessionPushState = {
       type: 'session_push_state',
@@ -90,6 +97,9 @@ export class DaemonWsClient {
       effortLevel,
       projectName: this.projectName,
       agentType: this.agentType,
+      question: prompt.question,
+      options: prompt.options,
+      promptType: prompt.promptType,
     };
     this.ws.send(JSON.stringify(msg));
   }

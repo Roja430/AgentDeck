@@ -1,6 +1,6 @@
 import { listActive as listActiveSessions, type SessionEntry } from './session-registry.js';
 import { clearAttention, notifyAttention } from './desktop-notify.js';
-import type { AgentType } from './types.js';
+import type { AgentType, PendingPrompt } from './types.js';
 import { sortSessions, type PromptOption } from '@agentdeck/shared';
 
 export interface EnrichedSession {
@@ -46,21 +46,76 @@ export interface EnrichedSession {
  * cache ages past LIVENESS_GRACE_MS without a successful probe/push, we stop treating it as
  * alive so devices (TRMNL e-ink, ESP32, Pixoo) prune ended sessions instead of showing them
  * forever (the registry only prunes on PID death, which lingers when the parent shell lives). */
-const siblingStateCache = new Map<string, { state: string; modelName?: string; effortLevel?: string; updatedAt: number }>();
+interface CachedState extends PendingPrompt {
+  state: string;
+  modelName?: string;
+  effortLevel?: string;
+  updatedAt: number;
+}
+
+const siblingStateCache = new Map<string, CachedState>();
 const LIVENESS_GRACE_MS = 20_000;
 
 /** Push-channel state cache — populated by DaemonWsClient session_push_state messages */
-const pushStateCache = new Map<string, { state: string; modelName?: string; effortLevel?: string; updatedAt: number }>();
+const pushStateCache = new Map<string, CachedState>();
 
 /** Update push-channel cache (called from daemon-server when session_push_state arrives) */
-export function updatePushState(sessionId: string, state: string, modelName?: string, effortLevel?: string): void {
+export function updatePushState(
+  sessionId: string,
+  state: string,
+  modelName?: string,
+  effortLevel?: string,
+  prompt: PendingPrompt = {},
+): void {
   // Read the previous state before overwriting: the notification must fire on
   // the *transition* into awaiting, not on every push that repeats it.
   const previous = pushStateCache.get(sessionId)?.state;
-  pushStateCache.set(sessionId, { state, modelName, effortLevel, updatedAt: Date.now() });
+  const entry: CachedState = {
+    state,
+    modelName,
+    effortLevel,
+    question: prompt.question,
+    options: prompt.options,
+    promptType: prompt.promptType,
+    updatedAt: Date.now(),
+  };
+  pushStateCache.set(sessionId, entry);
   // Also update sibling cache so it stays consistent
-  siblingStateCache.set(sessionId, { state, modelName, effortLevel, updatedAt: Date.now() });
+  siblingStateCache.set(sessionId, { ...entry });
   announceAttention(sessionId, previous, state);
+}
+
+/** Strip the prompt fields out of a cache entry, dropping the absent ones so a
+ *  session with no prompt doesn't ship three `undefined` keys on every row. */
+function promptOf(entry: PendingPrompt): PendingPrompt {
+  return {
+    ...(entry.question ? { question: entry.question } : {}),
+    ...(entry.options && entry.options.length > 0 ? { options: entry.options } : {}),
+    ...(entry.promptType ? { promptType: entry.promptType } : {}),
+  };
+}
+
+/**
+ * Derive the pending prompt from a state-machine snapshot.
+ *
+ * One place computes `promptType` so the `prompt_options` event, the daemon
+ * push, and `/health` cannot disagree about the same prompt — they used to,
+ * because only the event knew how to classify it.
+ */
+export function pendingPromptOf(snapshot: {
+  state: string;
+  question?: string | null;
+  options?: PromptOption[];
+}): PendingPrompt {
+  const options = snapshot.options ?? [];
+  if (options.length === 0) return {};
+  let promptType: PendingPrompt['promptType'] = 'multi_select';
+  if (snapshot.state === 'awaiting_permission') {
+    promptType = options.length > 2 ? 'yes_no_always' : 'yes_no';
+  } else if (snapshot.state === 'awaiting_diff') {
+    promptType = 'diff_review';
+  }
+  return { question: snapshot.question ?? undefined, options, promptType };
 }
 
 /** The three states that mean the agent has stopped and is waiting on a human. */
@@ -91,7 +146,7 @@ function announceAttention(sessionId: string, previous: string | undefined, next
 }
 
 /** Check if push-channel has fresh state (< 30s old) */
-export function getPushState(sessionId: string): { state: string; modelName?: string; effortLevel?: string } | undefined {
+export function getPushState(sessionId: string): (PendingPrompt & { state: string; modelName?: string; effortLevel?: string }) | undefined {
   const entry = pushStateCache.get(sessionId);
   if (!entry) return undefined;
   if (Date.now() - entry.updatedAt > 30_000) {
@@ -100,7 +155,12 @@ export function getPushState(sessionId: string): { state: string; modelName?: st
     pushStateCache.delete(sessionId);
     return undefined;
   }
-  return { state: entry.state, modelName: entry.modelName, effortLevel: entry.effortLevel };
+  return {
+    state: entry.state,
+    modelName: entry.modelName,
+    effortLevel: entry.effortLevel,
+    ...promptOf(entry),
+  };
 }
 
 /** Clear cache entry when a session is removed (call from session-registry cleanup) */
@@ -139,6 +199,7 @@ export async function enrichSessionsWithState(
   ownState: string,
   ownModelName?: string,
   ownEffortLevel?: string,
+  ownPrompt: PendingPrompt = {},
 ): Promise<EnrichedSession[]> {
   // Prune cache entries for sessions that have dropped out of the active set
   // (the registry already pruned dead PIDs before handing us this list).
@@ -154,25 +215,39 @@ export async function enrichSessionsWithState(
       startedAt: s.startedAt,
       controlMode: 'managed',
     };
-    if (s.id === ownSessionId) return { ...base, state: ownState, modelName: ownModelName, effortLevel: ownEffortLevel };
+    if (s.id === ownSessionId) {
+      return { ...base, state: ownState, modelName: ownModelName, effortLevel: ownEffortLevel, ...promptOf(ownPrompt) };
+    }
     // 1. Use fresh push-channel state if available (< 30s old)
     const pushed = getPushState(s.id);
-    if (pushed) return { ...base, state: pushed.state, modelName: pushed.modelName, effortLevel: pushed.effortLevel };
-    // 2. Fall back to HTTP polling
+    if (pushed) {
+      return { ...base, state: pushed.state, modelName: pushed.modelName, effortLevel: pushed.effortLevel, ...promptOf(pushed) };
+    }
+    // 2. Fall back to HTTP polling.
+    //    A session can sit at the same prompt far longer than the push cache's
+    //    30s TTL (nothing changes, so nothing is pushed), so /health has to
+    //    carry the pending prompt too — otherwise a long wait silently loses
+    //    its options and clients see an awaiting session with nothing to answer.
     try {
       const res = await fetch(`http://127.0.0.1:${s.port}/health`, { signal: AbortSignal.timeout(2000) });
-      const data = await res.json() as { state?: string; modelName?: string; effortLevel?: string };
+      const data = await res.json() as { state?: string; modelName?: string; effortLevel?: string } & PendingPrompt;
       if (data.state) {
-        siblingStateCache.set(s.id, { state: data.state, modelName: data.modelName, effortLevel: data.effortLevel, updatedAt: Date.now() });
+        siblingStateCache.set(s.id, {
+          state: data.state,
+          modelName: data.modelName,
+          effortLevel: data.effortLevel,
+          ...promptOf(data),
+          updatedAt: Date.now(),
+        });
       }
-      return { ...base, state: data.state, modelName: data.modelName, effortLevel: data.effortLevel };
+      return { ...base, state: data.state, modelName: data.modelName, effortLevel: data.effortLevel, ...promptOf(data) };
     } catch {
       // Probe failed. Within the grace window keep the last-known state alive so a
       // transient blip doesn't flicker a healthy session off the deck; past it,
       // mark the session dead so devices prune the ended session.
       const cached = siblingStateCache.get(s.id);
       if (cached && Date.now() - cached.updatedAt < LIVENESS_GRACE_MS) {
-        return { ...base, state: cached.state, modelName: cached.modelName, effortLevel: cached.effortLevel };
+        return { ...base, state: cached.state, modelName: cached.modelName, effortLevel: cached.effortLevel, ...promptOf(cached) };
       }
       return { ...base, alive: false, state: cached?.state ?? 'disconnected' };
     }
@@ -191,8 +266,9 @@ export async function buildEnrichedSessionsList(
   ownState: string,
   ownModelName?: string,
   ownEffortLevel?: string,
+  ownPrompt: PendingPrompt = {},
 ): Promise<EnrichedSession[]> {
   const all = listActiveSessions().filter(s => s.agentType !== 'daemon');
-  const enriched = await enrichSessionsWithState(all, ownSessionId, ownState, ownModelName, ownEffortLevel);
+  const enriched = await enrichSessionsWithState(all, ownSessionId, ownState, ownModelName, ownEffortLevel, ownPrompt);
   return sortSessions(enriched);
 }

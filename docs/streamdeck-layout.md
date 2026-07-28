@@ -83,6 +83,16 @@ Three rules the implementation depends on:
 Auto-focus fires only when exactly one session is awaiting. With two, focusing
 either would hand the dials to a prompt the user did not choose.
 
+**Auto-focus depends on `sessions_list` carrying the options themselves.** It
+reacts to a row that is *already* awaiting, so by the time it focuses that
+session the prompt event is long gone and none is coming — the relay forwards
+events, and a session parked at a prompt emits none. `primeDetailViewFromSession`
+builds the snapshot straight from `SessionInfo`, so if that row has no `options`
+the takeover cannot engage no matter how many times auto-focus fires. This
+presented as "works for a session that prompts while focused, never works for
+one that was already waiting". See
+[protocol.md → A pending prompt is state, not an event](protocol.md#a-pending-prompt-is-state-not-an-event).
+
 ### Bundled profiles are not declared in the manifest
 
 The `.streamDeckProfile` bundles still ship in the plugin folder, but the

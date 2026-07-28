@@ -6,7 +6,7 @@ import { join } from 'path';
 import { writeFileSync, unlinkSync } from 'fs';
 import { debug } from './logger.js';
 import { isLocalConnection, validateToken } from './auth.js';
-import type { BridgeEvent } from './types.js';
+import type { BridgeEvent, PendingPrompt } from './types.js';
 import type { VoiceManager } from './voice.js';
 import { onFrameRendered, offFrameRendered, setPreviewFps, getPreviewFps } from './pixoo/pixoo-bridge.js';
 import { STATE_COLORS } from '@agentdeck/shared';
@@ -16,6 +16,16 @@ import { STATE_COLORS } from '@agentdeck/shared';
 const STATE_COLORS_JS = JSON.stringify(Object.fromEntries(
   Object.entries(STATE_COLORS).flatMap(([k, v]) => [[k, v], [k.toUpperCase(), v]]),
 ));
+
+/** What `/health` and the status page report about this session. */
+export interface HookServerMeta extends PendingPrompt {
+  agentType?: string;
+  projectName?: string;
+  clientCount?: number;
+  state?: string;
+  modelName?: string;
+  effortLevel?: string;
+}
 
 /** Minimal SSE client handle */
 interface SseClient {
@@ -42,7 +52,7 @@ export class HookServer extends EventEmitter {
   private lastUsageEvent: BridgeEvent | null = null;
 
   // Metadata for status page / health
-  private meta: { agentType?: string; projectName?: string; clientCount?: number; state?: string; modelName?: string; effortLevel?: string } = {};
+  private meta: HookServerMeta = {};
 
   constructor() {
     super();
@@ -57,8 +67,10 @@ export class HookServer extends EventEmitter {
     this.diagHandler = handler;
   }
 
-  /** Update metadata shown on /health and /status */
-  setMeta(meta: { agentType?: string; projectName?: string; clientCount?: number; state?: string; modelName?: string; effortLevel?: string }): void {
+  /** Update metadata shown on /health and /status.
+   *  Assigns keys through, so passing an explicit `undefined` clears one —
+   *  that is how a resolved prompt stops being served. */
+  setMeta(meta: HookServerMeta): void {
     Object.assign(this.meta, meta);
   }
 
@@ -129,6 +141,12 @@ export class HookServer extends EventEmitter {
         state: this.meta.state,
         modelName: this.meta.modelName,
         effortLevel: this.meta.effortLevel,
+        // The prompt this session is blocked on. The daemon's aggregator falls
+        // back to /health whenever the push channel goes quiet — which is
+        // exactly what a session parked at an unanswered prompt does.
+        question: this.meta.question,
+        options: this.meta.options,
+        promptType: this.meta.promptType,
         wsClients: this.meta.clientCount ?? 0,
         sseClients: this.sseClients.length,
       });
