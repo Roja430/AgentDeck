@@ -139,7 +139,8 @@ Communication between the daemon (port 9120) and all dashboard clients (Plugin, 
 // Display sleep (LCD backlight sync)
 { type: 'display_sleep', displayOn: true }
 
-// Active sessions list (multi-session + sibling state)
+// Active sessions list (multi-session + sibling state). An awaiting row carries
+// the prompt itself — see "A pending prompt is state, not an event" below.
 { type: 'sessions_list', sessions: [{ id: 'abc', project: 'MyApp', state: 'idle' }] }
 
 // --- Multi-surface events (Android Deck mirroring) ---
@@ -168,6 +169,34 @@ Communication between the daemon (port 9120) and all dashboard clients (Plugin, 
 { type: 'query_usage' }                      // Refresh API usage data
 { type: 'utility', mode: 'volume', action: 'set', value: 75 }  // macOS utility proxy
 ```
+
+### A pending prompt is state, not an event
+
+`prompt_options` and the `options` on `state_update` announce that a prompt **just
+appeared**. A session that has been sitting at the same unanswered prompt for
+five minutes emits nothing at all, so a client that starts watching afterwards
+never learns what it is waiting for. That is not hypothetical: it is why the
+Stream Deck encoder takeover silently failed to engage for any session whose
+prompt predated the deck focusing it, while working perfectly for one that
+prompted afterwards.
+
+So the pending prompt also rides the two **state** channels, which any late
+client can read at will:
+
+| Channel | Carries | Refreshed |
+|---|---|---|
+| `sessions_list` → `SessionInfo.question` / `.options` / `.promptType` | the live prompt | polled + pushed |
+| session bridge `GET /health` | the same fields | on demand |
+
+The daemon prefers the session's WS push and falls back to `/health` once that
+cache goes stale after 30s — which is exactly what an unanswered prompt causes,
+since nothing changes and so nothing is pushed. **Both legs must carry the
+prompt**; wiring only the push channel reintroduces the bug for any wait longer
+than half a minute.
+
+`promptType` is derived in one place (`pendingPromptOf` in
+`bridge/src/session-aggregator.ts`) so the event and the two state channels
+cannot disagree about the same prompt.
 
 ---
 

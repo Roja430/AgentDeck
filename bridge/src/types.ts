@@ -1,3 +1,5 @@
+import type { PromptOption as SharedPromptOption } from '@agentdeck/shared';
+
 // Re-export all shared types
 export {
   State,
@@ -105,6 +107,22 @@ export interface SessionInfo {
   pid: number | null;
   port: number;
   workingDirectory: string;
+}
+
+/**
+ * The prompt a managed session is currently blocked on.
+ *
+ * Carried on the *state* channels (daemon push + `/health`), not only on the
+ * event channels. An event says "a prompt just appeared"; a session that has
+ * been sitting at the same prompt for five minutes emits nothing, so a client
+ * that focuses it afterwards had no way to learn what it is waiting for. That
+ * is why the Stream Deck encoder takeover never engaged for a session whose
+ * prompt predated the focus — see docs/streamdeck-layout.md.
+ */
+export interface PendingPrompt {
+  question?: string;
+  options?: SharedPromptOption[];
+  promptType?: 'yes_no' | 'yes_no_always' | 'multi_select' | 'diff_review';
 }
 
 export interface UsageSnapshot {

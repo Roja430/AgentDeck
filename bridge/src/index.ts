@@ -36,7 +36,7 @@ import {
 import { injectOpenClawSession } from './openclaw-session.js';
 import { VoiceAssistantManager } from './voice-assistant.js';
 import { TerminalStatus } from './terminal-status.js';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, createWriteStream } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from './proc.js';
@@ -51,7 +51,7 @@ import { DaemonWsClient } from './daemon-ws-client.js';
 import { fetchUsageFromApi, hasOAuthToken } from './usage-api.js';
 import { buildUsageEvent } from './usage-event.js';
 import { getLanIp } from '@agentdeck/shared';
-import { buildEnrichedSessionsList } from './session-aggregator.js';
+import { buildEnrichedSessionsList, pendingPromptOf } from './session-aggregator.js';
 import { migrateHooksIfNeeded } from './hook-migration.js';
 import {
   initModules,
@@ -493,8 +493,18 @@ export async function startSession(opts: SessionOptions): Promise<void> {
 
   // ===== Diagnostics =====
   adapter.onDiag((tail) => createDiagDump(core.stateMachine, core.wsServer, journal, ptyRingBuffer, tail));
+  // Verbatim PTY capture, off unless AGENTDECK_PTY_RAW_LOG names a file.
+  // The parser's inputs are escape sequences and chunk boundaries, and neither
+  // survives the ring buffer (ANSI-stripped) or the journal preview (control
+  // characters removed) — so when the parser misses something the two existing
+  // records cannot show why. One JSON line per chunk keeps both intact.
+  const rawPtyLogPath = process.env.AGENTDECK_PTY_RAW_LOG;
+  const rawPtyLog = rawPtyLogPath ? createWriteStream(rawPtyLogPath, { flags: 'a' }) : null;
+  if (rawPtyLog) log(`[agentdeck] Raw PTY capture → ${rawPtyLogPath}`);
+
   adapter.onRawData((data: string) => {
     ptyRingBuffer.push(data);
+    rawPtyLog?.write(`${JSON.stringify({ t: Date.now(), d: data })}\n`);
     const preview = data.replace(/[\x00-\x1f\x1b]/g, '').slice(0, 200);
     journal.write('pty_chunk', 'pty', { size: data.length, preview });
   });
@@ -768,10 +778,20 @@ export async function startSession(opts: SessionOptions): Promise<void> {
       }
     }
 
+    // What this session is blocked on, published on the *state* channels
+    // (/health + daemon push) and not only as an event. A client that focuses a
+    // session already parked at a prompt gets no event — the prompt happened
+    // before it was listening — so without this its options are unreachable.
+    const pending = pendingPromptOf(snapshot);
+
     hookServer?.setMeta({
       state: snapshot.state,
       modelName: snapshot.modelName ?? undefined,
       effortLevel: snapshot.effortLevel ?? undefined,
+      // Assigned unconditionally: an answered prompt must clear, not linger.
+      question: pending.question,
+      options: pending.options,
+      promptType: pending.promptType,
     });
     apme?.collector.updateModel(core.sessionId, snapshot.modelName ?? null);
     journal.write('state_change', 'internal', { state: snapshot.state, permissionMode: snapshot.permissionMode, suggestedPrompt: snapshot.suggestedPrompt });
@@ -786,26 +806,20 @@ export async function startSession(opts: SessionOptions): Promise<void> {
     core.maybeBroadcastSessionsList();
 
     // Backward-compat prompt_options
-    if (snapshot.options.length > 0) {
-      let promptType: 'yes_no' | 'yes_no_always' | 'multi_select' | 'diff_review' = 'multi_select';
-      if (snapshot.state === State.AWAITING_PERMISSION) {
-        promptType = snapshot.options.length > 2 ? 'yes_no_always' : 'yes_no';
-      } else if (snapshot.state === State.AWAITING_DIFF) {
-        promptType = 'diff_review';
-      }
+    if (pending.options) {
       core.broadcast({
         type: 'prompt_options',
         sessionId: core.sessionId,
-        promptType,
-        question: snapshot.question ?? undefined,
-        options: snapshot.options,
+        promptType: pending.promptType,
+        question: pending.question,
+        options: pending.options,
       } as BridgeEvent);
     }
 
     core.broadcastUsage();
 
     // Push state to daemon via internal WS
-    daemonWsClient.pushState(snapshot.state, snapshot.modelName ?? undefined, snapshot.effortLevel ?? undefined);
+    daemonWsClient.pushState(snapshot.state, snapshot.modelName ?? undefined, snapshot.effortLevel ?? undefined, pending);
 
     // Encoder + button state
     const encEvt = computeEncoderState();

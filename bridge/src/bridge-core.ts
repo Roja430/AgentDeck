@@ -19,7 +19,7 @@ import { probeGateway, checkGatewayHealth } from './gateway-probe.js';
 import { fetchUsageFromApi, hasOAuthToken, getTokenStatus, type ApiUsageData } from './usage-api.js';
 import { listRecentProjects } from './recent-projects.js';
 import { getCachedCostSummary, refreshCostSummary } from './transcript-cost.js';
-import { buildEnrichedSessionsList } from './session-aggregator.js';
+import { buildEnrichedSessionsList, pendingPromptOf } from './session-aggregator.js';
 import { activityFor } from './session-activity.js';
 import {
   register as registerSession,
@@ -673,6 +673,7 @@ export class BridgeCore {
       snapshot.state,
       snapshot.modelName ?? undefined,
       snapshot.effortLevel ?? undefined,
+      pendingPromptOf(snapshot),
     );
     if (this.sessionsEnricher) sessions = this.sessionsEnricher(sessions);
     // Attach the shared per-session activity one-liner to the FINAL list (covers
@@ -815,6 +816,7 @@ export class BridgeCore {
       snapshot.state,
       snapshot.modelName ?? undefined,
       snapshot.effortLevel ?? undefined,
+      pendingPromptOf(snapshot),
     ).then((sessions) => {
       const enriched = this.sessionsEnricher ? this.sessionsEnricher(sessions) : sessions;
       this.wsServer.sendTo(ws, { type: 'sessions_list', sessions: enriched, recentProjects: this.recentProjects() } as BridgeEvent);

@@ -8,6 +8,9 @@ import { createTempDataDir, type TempDataDir } from './helpers/temp-data-dir.js'
 
 vi.mock('../session-aggregator.js', () => ({
   buildEnrichedSessionsList: vi.fn(),
+  // Pure snapshot→prompt derivation; the real one is covered in
+  // session-aggregator.test.ts, so a no-prompt stub keeps this suite focused.
+  pendingPromptOf: vi.fn(() => ({})),
 }));
 
 import { buildEnrichedSessionsList } from '../session-aggregator.js';
@@ -72,7 +75,7 @@ describe('BridgeCore sessions_list', () => {
 
     await core.broadcastSessionsList();
 
-    expect(mockBuildEnrichedSessionsList).toHaveBeenCalledWith(core.sessionId, 'idle', undefined, undefined);
+    expect(mockBuildEnrichedSessionsList).toHaveBeenCalledWith(core.sessionId, 'idle', undefined, undefined, {});
     // objectContaining on the envelope too: the event grows fields over time and
     // an exact match makes every addition look like a regression here.
     expect(broadcastSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -145,6 +148,6 @@ describe('BridgeCore sessions_list', () => {
       ]);
     });
 
-    expect(mockBuildEnrichedSessionsList).toHaveBeenCalledWith(core.sessionId, 'idle', undefined, undefined);
+    expect(mockBuildEnrichedSessionsList).toHaveBeenCalledWith(core.sessionId, 'idle', undefined, undefined, {});
   });
 });

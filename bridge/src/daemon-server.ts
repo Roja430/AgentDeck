@@ -116,6 +116,7 @@ import {
   type BridgeEvent,
   type AdapterEvent,
   type ModelCatalogEntry,
+  type PluginCommand,
 } from './types.js';
 
 function exitProcessNow(code = 0): void {
@@ -1912,6 +1913,40 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     core.wsServer.broadcast(stateEvent);
   };
 
+  /**
+   * Point the focus at a session, announcing it only when it actually moved.
+   *
+   * The announcement carries the daemon's OWN snapshot — the daemon runs no
+   * agent, so that state is `disconnected`. Firing it per command (every dial
+   * turn, every option press routes through here) interleaved a DISCONNECTED
+   * state_update with the focused session's real states several times a
+   * second. Clients that check `agentType === 'daemon'` ignored it; every
+   * other surface flickered. Focusing is idempotent, so re-announcing an
+   * unchanged focus was pure noise either way.
+   *
+   * Returns true when the focus moved.
+   */
+  const setUserFocus = (sessionId: string | null): boolean => {
+    if (userFocusedSessionId === sessionId) return false;
+    userFocusedSessionId = sessionId;
+    broadcastFocusedState();
+    return true;
+  };
+
+  /**
+   * Focus a session and deliver a command to it.
+   *
+   * Routes immediately when the relay is already connected — the 100ms wait
+   * exists only to cover a relay that is still opening, and paying it on every
+   * keypress made the deck feel laggy for no reason.
+   */
+  const focusAndRoute = (sessionId: string, command: PluginCommand): void => {
+    setUserFocus(sessionId);
+    focusRelay.focus(sessionId);
+    if (focusRelay.routeCommand(command)) return;
+    setTimeout(() => focusRelay.routeCommand(command), 100);
+  };
+
   // System wake recovery — re-publish mDNS, reconnect devices, refresh usage
   core.onSystemWake(() => {
     log('[daemon] System wake detected — recovering devices');
@@ -2602,9 +2637,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       return true; // consumed
     }
     if (msg.type === 'session_push_state') {
-      const { sessionId, state, modelName, effortLevel } = msg as any;
+      const { sessionId, state, modelName, effortLevel, question, options, promptType } = msg as any;
       if (sessionId && state) {
-        updatePushState(sessionId, state, modelName, effortLevel);
+        updatePushState(sessionId, state, modelName, effortLevel, { question, options, promptType });
         // Trigger sessions list broadcast so clients get fresh state
         core.maybeBroadcastSessionsList();
       }
@@ -2759,8 +2794,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
     if (cmd.type === 'focus_session') {
       const sessionId = (cmd as any).sessionId as string;
       if (!sessionId) return;
-      userFocusedSessionId = sessionId;
-      broadcastFocusedState();
+      setUserFocus(sessionId);
       if (sessionId === 'openclaw-gateway' && gatewayAdapter?.isAlive()) {
         focusRelay.unfocus();
         return;
@@ -2769,9 +2803,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       return;
     }
     if (cmd.type === 'clear_session_focus') {
-      userFocusedSessionId = null;
       focusRelay.unfocus();
-      broadcastFocusedState();
+      setUserFocus(null);
       return;
     }
     // Independent on-demand review (REVIEW deck button): judge the session's
@@ -2875,12 +2908,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
         debug('daemon', `session_command: session ${sessionId} not found`);
         return;
       }
-      // Focus the session first, then route the command
-      userFocusedSessionId = sessionId;
-      broadcastFocusedState();
-      focusRelay.focus(sessionId);
-      // Small delay to let focus take effect, then route
-      setTimeout(() => focusRelay.routeCommand(command), 100);
+      focusAndRoute(sessionId, command);
       return;
     }
     // Session-scoped option select from a multi-up panel (IPS10 D1 mosaic):
@@ -2890,10 +2918,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<void> {
       const sessionId = (cmd as any).sessionId as string;
       const target = listActiveSessions().find(s => s.id === sessionId);
       if (target) {
-        userFocusedSessionId = sessionId;
-        broadcastFocusedState();
-        focusRelay.focus(sessionId);
-        setTimeout(() => focusRelay.routeCommand({ type: 'select_option', index: (cmd as any).index }), 100);
+        focusAndRoute(sessionId, { type: 'select_option', index: (cmd as any).index } as PluginCommand);
         return;
       }
     }

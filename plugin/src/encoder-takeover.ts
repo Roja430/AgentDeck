@@ -116,9 +116,16 @@ export function handleTakeoverPress(): void {
   sendSelect?.(state.getCursor());
 }
 
-/** Drop the takeover without waiting for a state update (daemon loss, etc.). */
+/**
+ * Drop the takeover without waiting for a state update — the session died, the
+ * daemon went away, or the detail view closed. Logs like the ordinary exit
+ * does: a silent release and a release that never happened look identical in
+ * the log, which is precisely the question worth asking when the strip is
+ * still on screen.
+ */
 export function resetEncoderTakeover(): void {
   if (!state.isActive()) return;
+  dinfo('Takeover', 'release — no snapshot is coming to turn it off');
   state.reset();
   for (const id of allEncoderIds()) forgetDialCanvas(id);
   restoreDials?.();

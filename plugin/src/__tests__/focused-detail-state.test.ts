@@ -132,3 +132,72 @@ describe('FocusedDetailState', () => {
     });
   });
 });
+
+/**
+ * A prompt raised before the deck focused the session sends no state_update —
+ * the relay forwards events, and a session parked at a prompt emits none. The
+ * sessions_list row is the only place it exists, so the snapshot has to be able
+ * to take it from there or the options never arrive at all.
+ */
+describe('FocusedDetailState.adoptPromptFromSession', () => {
+  const awaiting: SessionInfo = {
+    ...claude,
+    state: State.AWAITING_PERMISSION,
+    question: 'Do you want to overwrite test.txt?',
+    options: [
+      { index: 0, label: 'Yes' },
+      { index: 1, label: 'No' },
+    ],
+  };
+
+  it('fills in a prompt the live snapshot never heard about', () => {
+    const store = new FocusedDetailState();
+    store.prime(claude);
+
+    const next = store.adoptPromptFromSession(awaiting);
+    expect(next?.options.map((o) => o.label)).toEqual(['Yes', 'No']);
+    expect(next?.question).toBe('Do you want to overwrite test.txt?');
+    expect(next?.state).toBe(State.AWAITING_PERMISSION);
+  });
+
+  it('leaves options the snapshot already has alone', () => {
+    // The row is polled, so it is always at least as old as the live snapshot.
+    // Letting it replace live options would flicker between the two.
+    const store = new FocusedDetailState();
+    store.prime(claude);
+    store.applyState(state({
+      sessionId: claude.id,
+      state: State.AWAITING_OPTION,
+      options: [{ index: 0, label: 'live' }],
+      question: 'live question',
+    }), claude);
+
+    expect(store.adoptPromptFromSession(awaiting)).toBeNull();
+    expect(store.snapshot?.options.map((o) => o.label)).toEqual(['live']);
+    expect(store.snapshot?.question).toBe('live question');
+  });
+
+  it('never erases a prompt just because the row has not caught up', () => {
+    const store = new FocusedDetailState();
+    store.prime(awaiting);
+    expect(store.adoptPromptFromSession({ ...claude, options: [] })).toBeNull();
+    expect(store.snapshot?.options).toHaveLength(2);
+  });
+
+  it('ignores a row for a different session', () => {
+    const store = new FocusedDetailState();
+    store.prime(claude);
+    expect(store.adoptPromptFromSession({ ...awaiting, id: 'someone-else' })).toBeNull();
+  });
+
+  it('ignores a row that carries options without waiting for an answer', () => {
+    // Stale options on a working session would put the dials up mid-turn.
+    const store = new FocusedDetailState();
+    store.prime(claude);
+    expect(store.adoptPromptFromSession({ ...awaiting, state: State.PROCESSING })).toBeNull();
+  });
+
+  it('does nothing before anything has been primed', () => {
+    expect(new FocusedDetailState().adoptPromptFromSession(awaiting)).toBeNull();
+  });
+});

@@ -66,7 +66,13 @@ export class SessionFocusRelay {
 
   /** Focus a session by ID. Disconnects from previous session. */
   focus(sessionId: string): void {
-    if (this.focusedSessionId === sessionId && this.ws?.readyState === WebSocket.OPEN) {
+    // CONNECTING counts as already focused. Clients re-send focus_session for a
+    // session they are already on (the deck's auto-focus does, every time the
+    // list still shows it awaiting), and treating that as a change tore down a
+    // half-open relay and rebuilt it — a window during which the session's
+    // events reach nobody.
+    const live = this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING;
+    if (this.focusedSessionId === sessionId && live) {
       debug(TAG, `Already focused on ${sessionId}`);
       return;
     }
@@ -89,9 +95,20 @@ export class SessionFocusRelay {
   /** Unfocus current session. */
   unfocus(): void {
     if (this.ws) {
-      this.ws.removeAllListeners();
-      this.ws.close();
+      const ws = this.ws;
       this.ws = null;
+      ws.removeAllListeners();
+      // Closing a socket that has not finished connecting aborts the handshake
+      // by EMITTING an error, and an EventEmitter with no 'error' listener
+      // throws — which is how switching focus a moment after the previous
+      // focus took down the entire daemon. The listener has to be re-armed
+      // after removeAllListeners() and before close().
+      ws.on('error', () => {});
+      try {
+        ws.close();
+      } catch {
+        // Socket already dead; nothing left to release.
+      }
     }
     if (this.focusedSessionId) {
       debug(TAG, `Unfocused session ${this.focusedSessionId}`);
