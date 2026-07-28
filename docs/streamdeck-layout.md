@@ -83,6 +83,17 @@ Three rules the implementation depends on:
 Auto-focus fires only when exactly one session is awaiting. With two, focusing
 either would hand the dials to a prompt the user did not choose.
 
+**The takeover only ever learns about the world through `renderFocusedDetail`.**
+Nothing else feeds it, which makes every path that stops calling it a way to
+strand the encoders on a prompt that is no longer on screen — presses then go
+nowhere, because the session they would answer is gone. Three such paths existed:
+leaving the detail view cleared the snapshot without telling the takeover; a
+session that died while its prompt was open sends no final `state_update`,
+because it is dead; and a dead row keeps reporting its last known state through
+the daemon's liveness grace window, so auto-focus grabbed the corpse, found it
+dead, dropped back, and grabbed it again on the next poll. `leaveDetailView()`,
+`hasSessionEnded()`, and the `soleAwaitingSession()` filter close them.
+
 **Auto-focus depends on `sessions_list` carrying the options themselves.** It
 reacts to a row that is *already* awaiting, so by the time it focuses that
 session the prompt event is long gone and none is coming — the relay forwards

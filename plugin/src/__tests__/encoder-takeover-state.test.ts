@@ -12,6 +12,7 @@ import {
   EncoderTakeoverState,
   isAnswerable,
   isAwaitingState,
+  hasSessionEnded,
   soleAwaitingSession,
 } from '../encoder-takeover-state.js';
 
@@ -150,5 +151,64 @@ describe('soleAwaitingSession', () => {
   it('names nobody when none are waiting', () => {
     expect(soleAwaitingSession([s('a', 'idle')])).toBeUndefined();
     expect(soleAwaitingSession([])).toBeUndefined();
+  });
+});
+
+/**
+ * A dead session cannot announce its own death. Closing the terminal while a
+ * prompt was open left the encoders showing choices with nowhere to send them,
+ * and a press did nothing — the takeover only learns through the focused
+ * snapshot, and no further snapshot was ever coming.
+ */
+describe('hasSessionEnded', () => {
+  const live: SessionInfo = {
+    id: 'claude:1',
+    port: 9121,
+    projectName: 'AgentDeck',
+    agentType: 'claude-code',
+    alive: true,
+    state: State.AWAITING_PERMISSION,
+  };
+
+  it('treats a vanished row as ended', () => {
+    expect(hasSessionEnded(undefined)).toBe(true);
+  });
+
+  it('treats a row the daemon marked dead as ended', () => {
+    expect(hasSessionEnded({ ...live, alive: false })).toBe(true);
+  });
+
+  it('treats a disconnected row as ended even while it still says alive', () => {
+    // The daemon reports this shape once the liveness grace window expires.
+    expect(hasSessionEnded({ ...live, state: State.DISCONNECTED })).toBe(true);
+  });
+
+  it('leaves a session holding for an answer alone', () => {
+    expect(hasSessionEnded(live)).toBe(false);
+  });
+
+  it('does not read a missing alive field as a death notice', () => {
+    // Omitting the field is not a claim; treating it as one would close the
+    // detail view on a healthy session.
+    const partial = { ...live } as Partial<SessionInfo>;
+    delete partial.alive;
+    expect(hasSessionEnded(partial as SessionInfo)).toBe(false);
+  });
+});
+
+describe('soleAwaitingSession and dead rows', () => {
+  const waiting = (over: Partial<SessionInfo> = {}): SessionInfo =>
+    session({ state: State.AWAITING_PERMISSION, ...over });
+
+  it('ignores a dead row that still reports a prompt', () => {
+    // The daemon keeps serving the last known state through its liveness grace
+    // window. Focusing that corpse looped the deck: focus, find it dead, drop
+    // back, focus it again on the next poll.
+    expect(soleAwaitingSession([waiting({ id: 'dead', alive: false })])).toBeUndefined();
+  });
+
+  it('picks the live one when a dead row is also listed', () => {
+    const live = waiting({ id: 'live' });
+    expect(soleAwaitingSession([waiting({ id: 'dead', alive: false }), live])?.id).toBe('live');
   });
 });
