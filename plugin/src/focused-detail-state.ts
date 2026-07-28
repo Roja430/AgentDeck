@@ -74,6 +74,33 @@ export class FocusedDetailState {
     return this.current;
   }
 
+  /**
+   * Take a prompt off the session's list row when this snapshot has none.
+   *
+   * A prompt that appeared *before* this client focused the session produces no
+   * `state_update` — the relay forwards events, and a session parked at a
+   * prompt emits none — so the list row is the only place it exists. Without
+   * this the options never arrive and nothing recovers them.
+   *
+   * Deliberately one-way: it fills a gap, never overwrites. A polled row is
+   * always at least as old as the live snapshot, so letting it erase or replace
+   * options would make the deck flicker between the two.
+   */
+  adoptPromptFromSession(session: SessionInfo): FocusedDetailSnapshot | null {
+    const current = this.current;
+    if (!current || current.sessionId !== session.id) return null;
+    if (current.options.length > 0) return null;
+    const options = session.options ?? [];
+    if (options.length === 0) return null;
+    const state = stateFromSession(session);
+    if (state !== State.AWAITING_PERMISSION
+      && state !== State.AWAITING_OPTION
+      && state !== State.AWAITING_DIFF) return null;
+
+    this.current = { ...current, state, options, question: session.question };
+    return this.current;
+  }
+
   applyState(ev: StateUpdateEvent, focused: SessionInfo): FocusedDetailSnapshot | null {
     const sourceId = eventSessionId(ev);
     const legacyOpenClawMatch = !sourceId

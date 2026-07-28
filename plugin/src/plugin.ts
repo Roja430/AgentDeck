@@ -80,7 +80,7 @@ import {
 } from './actions/session-slot-button.js';
 import { isDisplayDimmed, setDisplayDimmed, dimActionIfNeeded } from './display-dim.js';
 import { initEncoderTakeover, syncEncoderTakeover, resetEncoderTakeover } from './encoder-takeover.js';
-import { soleAwaitingSession } from './encoder-takeover-state.js';
+import { hasSessionEnded, soleAwaitingSession } from './encoder-takeover-state.js';
 import { FocusedDetailState, type FocusedDetailSnapshot } from './focused-detail-state.js';
 
 // ---- Shared state ----
@@ -117,10 +117,23 @@ function renderFocusedDetail(snapshot: FocusedDetailSnapshot): void {
 
 function primeDetailViewFromSession(session?: SessionInfo): void {
   if (!session) {
-    focusedDetailState.clear();
+    leaveDetailView();
     return;
   }
   renderFocusedDetail(focusedDetailState.prime(session));
+}
+
+/**
+ * Drop the focused snapshot and hand the encoders back.
+ *
+ * Clearing the snapshot alone left the takeover holding E1–E4 for a prompt that
+ * is no longer on screen: nothing else was ever going to tell it, since the
+ * takeover only learns about the world through `renderFocusedDetail`, which
+ * stops being called the moment the detail view goes away.
+ */
+function leaveDetailView(): void {
+  focusedDetailState.clear();
+  resetEncoderTakeover();
 }
 
 function sendFocusedSessionCommand(command: { type: string; [key: string]: unknown }): void {
@@ -163,7 +176,7 @@ initSessionDial({
     broadcastStateUpdate();
   },
   back: () => {
-    focusedDetailState.clear();
+    leaveDetailView();
     exitDetailView();
     broadcastStateUpdate();
   },
@@ -202,7 +215,7 @@ initSessionSlots((result) => {
     }
 
     case 'exit-detail':
-      focusedDetailState.clear();
+      leaveDetailView();
       exitDetailView();
       broadcastStateUpdate();  // refresh encoders (timeline ↔ normal)
       break;
@@ -409,7 +422,11 @@ connMgr.on('sessions_list', (ev: SessionsListEvent) => {
   if (!isInDetailView()) {
     const sole = soleAwaitingSession(ev.sessions);
     if (sole) {
-      dinfo('Plugin', `auto-focus ${sole.id} — sole awaiting session`);
+      // Log the row's shape, not just its id: "auto-focus fired but the
+      // takeover never engaged" is unanswerable without knowing whether the
+      // row carried any options and whether the session can be answered at all.
+      dinfo('Plugin', `auto-focus ${sole.id} — sole awaiting session `
+        + `(${sole.controlMode ?? 'managed'}, ${sole.state}, ${(sole.options ?? []).length} option(s))`);
       getSessionSlotManager().enterDetailView(sole.id);
       connMgr.focusSession(sole.id);
       primeDetailViewFromSession(sole);
@@ -431,13 +448,30 @@ connMgr.on('sessions_list', (ev: SessionsListEvent) => {
   if (isInDetailView()) {
     const focused = getFocusedSession();
     const snapshot = focusedDetailState.snapshot;
+    if (hasSessionEnded(focused)) {
+      // Closing the terminal on an open prompt is not something the session can
+      // report — it is dead. Left alone, the encoders keep offering choices
+      // with nowhere to send them, and a press silently goes nowhere.
+      if (snapshot) dinfo('Plugin', `focused session ended — releasing the encoders`);
+      leaveDetailView();
+      exitDetailView();
     // A Codex fold can replace the selected thread id. Observed sessions have
     // no focused bridge relay, so their sessions_list row is always canonical.
-    if (focused && (snapshot?.sessionId !== focused.id || focused.controlMode === 'observed')) {
+    } else if (focused && (snapshot?.sessionId !== focused.id || focused.controlMode === 'observed')) {
       primeDetailViewFromSession(focused);
+    } else if (focused) {
+      // Self-heal. A prompt raised before this client focused the session sends
+      // no state_update — nothing is coming — so the list row is the only place
+      // it exists. Adopting only fills a gap, so a stale row cannot fight the
+      // live snapshot.
+      const adopted = focusedDetailState.adoptPromptFromSession(focused);
+      if (adopted) {
+        dinfo('Plugin', `adopted prompt for ${focused.id} from sessions_list — ${adopted.options.length} option(s)`);
+        renderFocusedDetail(adopted);
+      }
     }
   } else {
-    focusedDetailState.clear();
+    leaveDetailView();
   }
 });
 
