@@ -36,7 +36,7 @@ import {
 import { injectOpenClawSession } from './openclaw-session.js';
 import { VoiceAssistantManager } from './voice-assistant.js';
 import { TerminalStatus } from './terminal-status.js';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, createWriteStream } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from './proc.js';
@@ -493,8 +493,18 @@ export async function startSession(opts: SessionOptions): Promise<void> {
 
   // ===== Diagnostics =====
   adapter.onDiag((tail) => createDiagDump(core.stateMachine, core.wsServer, journal, ptyRingBuffer, tail));
+  // Verbatim PTY capture, off unless AGENTDECK_PTY_RAW_LOG names a file.
+  // The parser's inputs are escape sequences and chunk boundaries, and neither
+  // survives the ring buffer (ANSI-stripped) or the journal preview (control
+  // characters removed) — so when the parser misses something the two existing
+  // records cannot show why. One JSON line per chunk keeps both intact.
+  const rawPtyLogPath = process.env.AGENTDECK_PTY_RAW_LOG;
+  const rawPtyLog = rawPtyLogPath ? createWriteStream(rawPtyLogPath, { flags: 'a' }) : null;
+  if (rawPtyLog) log(`[agentdeck] Raw PTY capture → ${rawPtyLogPath}`);
+
   adapter.onRawData((data: string) => {
     ptyRingBuffer.push(data);
+    rawPtyLog?.write(`${JSON.stringify({ t: Date.now(), d: data })}\n`);
     const preview = data.replace(/[\x00-\x1f\x1b]/g, '').slice(0, 200);
     journal.write('pty_chunk', 'pty', { size: data.length, preview });
   });
