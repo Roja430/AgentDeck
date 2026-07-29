@@ -133,6 +133,21 @@ directories are read from Claude Code's own transcripts (`cwd` on each record,
 not the lossy folder name under `~/.claude/projects/`), so the list needs no
 configuration and is empty rather than wrong when there is no history.
 
+To hide one, name it in `~/.agentdeck/settings.json`:
+
+```json
+{ "recentProjects": { "exclude": ["C:/work/scratch"] } }
+```
+
+**Deleting the transcripts is not the way to do this.** The list is derived from
+them, so the entry returns the next time a session runs there — and the delete
+takes that project's entire conversation history with it.
+
+Exact paths only, never prefixes: excluding a parent would take its children
+too, and the case this was added for wants the parent gone from the dial while a
+project inside it stays. On Windows either slash works, since a hand-written
+settings file contains whichever the user typed.
+
 Pressing one sends `new_session` to the daemon, which opens **Windows Terminal**
 at that directory running `agentdeck claude`. Starting a session needs a terminal
 the user can read, and the plugin has none to offer. Windows Terminal is the only

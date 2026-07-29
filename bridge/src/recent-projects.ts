@@ -40,6 +40,8 @@ export interface RecentProjectOptions {
   home?: string;
   /** Override "now" (tests). */
   now?: number;
+  /** Paths to hide. Defaults to `recentProjects.exclude` in settings.json. */
+  exclude?: string[];
 }
 
 const DEFAULT_LIMIT = 5;
@@ -51,11 +53,53 @@ const DEFAULT_LIMIT = 5;
  * new session in `~` is never what picking an entry on the dial meant.
  */
 function isHomeDir(path: string, home: string): boolean {
+  return samePath(path, home);
+}
+
+/**
+ * Trailing separators are never meaningful. On Windows, neither is case, nor
+ * the choice of slash — `C:/work` and `C:\work` are the same directory, and a
+ * hand-written settings file will contain whichever one the user typed. Making
+ * that the difference between the setting working and silently doing nothing
+ * would be a poor trade for a stricter comparison.
+ */
+function samePath(a: string, b: string): boolean {
   const strip = (p: string) => p.replace(/[\\/]+$/, '');
-  const a = strip(path);
-  const b = strip(home);
-  // Windows paths are case-insensitive; POSIX ones are not.
-  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+  if (process.platform !== 'win32') return strip(a) === strip(b);
+  const norm = (p: string) => strip(p).replace(/\//g, '\\').toLowerCase();
+  return norm(a) === norm(b);
+}
+
+/**
+ * Directories the user never wants offered as a launch target, from
+ * `~/.agentdeck/settings.json`:
+ *
+ *     { "recentProjects": { "exclude": ["C:\\work\\scratch"] } }
+ *
+ * Deleting the transcripts is not a substitute: this list is derived from them,
+ * so the entry returns the moment Claude Code runs there again — and deleting
+ * takes the conversation history with it.
+ *
+ * **Exact paths only, never prefixes.** Excluding a parent would take its
+ * children with it, and the case this was written for wants the opposite: the
+ * parent gone from the dial while a project inside it stays.
+ *
+ * Read on every call rather than cached, so an edit takes effect on the next
+ * list instead of on the next restart.
+ */
+function loadExclusions(): string[] {
+  const file = join(homedir(), '.agentdeck', 'settings.json');
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf-8')) as Record<string, any>;
+    const list = raw?.recentProjects?.exclude;
+    if (!Array.isArray(list)) return [];
+    return list.filter((p): p is string => typeof p === 'string' && p.trim().length > 0);
+  } catch {
+    // Missing or malformed. Either way there is nothing to hide, and a launcher
+    // that silently empties itself over a typo is worse than one that shows an
+    // entry the user wanted gone.
+    return [];
+  }
 }
 
 /**
@@ -93,6 +137,7 @@ export function listRecentProjects(opts: RecentProjectOptions = {}): RecentProje
   const cutoff = now - (opts.windowDays ?? 30) * 86_400_000;
   const root = opts.dir ?? projectsDir();
   const home = opts.home ?? homedir();
+  const exclude = opts.exclude ?? loadExclusions();
 
   const byPath = new Map<string, RecentProject>();
 
@@ -125,6 +170,7 @@ export function listRecentProjects(opts: RecentProjectOptions = {}): RecentProje
       const { cwd, ts } = readTail(full);
       if (!cwd) continue;
       if (isHomeDir(cwd, home)) continue;
+      if (exclude.some((e) => samePath(cwd, e))) continue;
       // Prefer the record timestamp; fall back to mtime when the tail had none.
       const lastActiveAt = ts ?? mtime;
       const existing = byPath.get(cwd);

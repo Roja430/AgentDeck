@@ -103,3 +103,61 @@ describe('listRecentProjects', () => {
     });
   });
 });
+
+/**
+ * Hiding a project from the launcher.
+ *
+ * The list is derived from Claude Code's transcripts, so deleting them is not a
+ * way to hide an entry: it comes back the next time a session runs there, and
+ * takes the conversation history with it on the way out.
+ */
+describe('listRecentProjects exclusions', () => {
+  let root: string;
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'agentdeck-excl-')); });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function write(dirName: string, cwd: string, ts: number): void {
+    const dir = join(root, dirName);
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'a.jsonl');
+    writeFileSync(path, `${JSON.stringify({ type: 'user', cwd, timestamp: new Date(ts).toISOString() })}\n`);
+    utimesSync(path, new Date(ts), new Date(ts));
+  }
+
+  const list = (exclude: string[]) =>
+    listRecentProjects({ dir: root, home: '/nowhere', now: NOW, exclude })
+      .map((p) => p.path);
+
+  it('hides an excluded path', () => {
+    write('a', '/work/keep', NOW - DAY);
+    write('b', '/work/hide', NOW - DAY);
+    expect(list(['/work/hide'])).toEqual(['/work/keep']);
+  });
+
+  it('keeps a project that lives inside an excluded one', () => {
+    // The whole point of the feature: drop the parent from the dial while the
+    // project inside it stays. Prefix matching would take both.
+    write('a', '/work/parent', NOW - DAY);
+    write('b', '/work/parent/child', NOW - 2 * DAY);
+    expect(list(['/work/parent'])).toEqual(['/work/parent/child']);
+  });
+
+  it('ignores a trailing separator', () => {
+    write('a', '/work/hide', NOW - DAY);
+    expect(list(['/work/hide/'])).toEqual([]);
+  });
+
+  it('changes nothing when the list is empty', () => {
+    write('a', '/work/keep', NOW - DAY);
+    expect(list([])).toEqual(['/work/keep']);
+  });
+
+  it.runIf(process.platform === 'win32')('accepts either slash on Windows', () => {
+    // A hand-written settings file contains whichever the user typed, and on
+    // Windows both name the same directory. Failing silently over that would be
+    // a poor trade for a stricter comparison.
+    write('a', 'C:\\work\\hide', NOW - DAY);
+    expect(list(['C:/work/hide'])).toEqual([]);
+    expect(list(['c:\\WORK\\hide'])).toEqual([]);
+  });
+});
