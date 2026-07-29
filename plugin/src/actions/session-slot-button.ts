@@ -21,7 +21,6 @@ import {
   renderDisconnectedSlot,
   renderBackButton,
   renderNextPageButton,
-  renderProfileButton,
   renderEscButton,
   renderStopButton,
   renderOptionButton,
@@ -382,9 +381,6 @@ function renderSlotSvg(config: SessionSlotConfig, _slot: number): string {
     case 'usage-page':
       return renderNextPageButton(config.label ?? '');
 
-    case 'profile':
-      return renderProfileButton();
-
     case 'empty':
     default:
       return renderEmptySlot();
@@ -443,18 +439,6 @@ export class SessionSlotButtonAction extends SingletonAction {
     if (result.action === 'cycle-usage-page') {
       manager.cycleUsagePage();
       refreshAll();
-      return;
-    }
-
-    if (result.action === 'switch-profile') {
-      // Hand the deck back to whatever profile was active before AgentDeck
-      // took it. Passing no profile name is the only move available here:
-      // the SDK lets a plugin switch to profiles it ships, and to the
-      // previous one, but never to a profile the user made.
-      dlog('SesSlot', `switch-profile on device ${ev.action.device.id}`);
-      void streamDeck.profiles.switchToProfile(ev.action.device.id).catch((err: unknown) => {
-        dlog('SesSlot', `switch-profile failed: ${err instanceof Error ? err.message : String(err)}`);
-      });
       return;
     }
 

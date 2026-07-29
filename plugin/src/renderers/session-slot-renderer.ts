@@ -8,7 +8,6 @@ export {
   renderDisconnectedSlot,
   renderBackButton,
   renderNextPageButton,
-  renderProfileButton,
   renderEscButton,
   renderStopButton,
   renderDetailInfo,
