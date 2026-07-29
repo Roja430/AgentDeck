@@ -7,8 +7,8 @@ locale: en
 canonical: true
 status: stable
 owner: Design system maintainers
-reviewed: 2026-07-18
-revision: 2026-07-18
+reviewed: 2026-07-29
+revision: 2026-07-29
 source_of_truth: docs/design-lint-baseline.md
 validators: [node scripts/build-design-system-viewer.mjs --check, bash design/lint.sh]
 ---
@@ -21,23 +21,31 @@ Run `bash design/lint.sh` to see the current count. Run `bash design/lint.sh --j
 
 ## Current snapshot
 
-<!-- Updated 2026-07-18 after replacing the legacy docs hub with the token-driven design-system viewer. -->
+<!-- Updated 2026-07-29 after repairing R6, which had been reporting ~220 phantom violations. -->
 
-Total: **89 violations** across **3 rules**.
+Total: **91 violations** across **3 rules**.
 
 | Rule | Count | Meaning |
 |---|---|---|
-| `R1_pure_white_black` | 2 | Pure `#fff` / `#000` — should use `--tide-50` / `--ink-900` |
-| `R2_hardcoded_hex` | 82 | Hardcoded hex outside token files |
+| `R1_pure_white_black` | 3 | Pure `#fff` / `#000` — should use `--tide-50` / `--ink-900` |
+| `R2_hardcoded_hex` | 83 | Hardcoded hex outside token files |
 | `R7_arbitrary_radius` | 5 | `border-radius` outside `{0, 4, 8, 10, 12, 14, 16, 18, 999}` |
+
+`R6_emoji_in_ui` is **0** and no longer appears. It used to dominate this table
+with ~220 hits that were not emoji at all — see the History entry below.
 
 ## Top offenders
 
 | File | Total | Notes |
 |---|---|---|
 | `docs/appstore-migration-diagram.html` | 61 | Off-product flowchart with generic Tailwind palette; not a UI surface — skip-rule candidate |
-| `docs/design/Design System.html` | 23 | Legacy design guide intentionally displays raw colour swatches; the Pages viewer reads the canonical token file instead |
-| `docs/design/Design Audit.html` | 3 | Legacy design reference page |
+| `docs/design/Design System.html` | 24 | Legacy design guide intentionally displays raw colour swatches; the Pages viewer reads the canonical token file instead |
+| `docs/design/Design Audit.html` | 4 | Legacy design reference page |
+| `plugin-ulanzi/…/plugin/app.js` | 2 | A `#000` key bitmap and one hex — the only offenders in shipped product code |
+
+Two of the three `R1` hits are the rule's own documentation quoting `#fff` and
+`#000` as the values it forbids. Leave them; a rule page that cannot name what
+it forbids is worse than a counted violation.
 
 ## Migration policy
 
@@ -92,6 +100,30 @@ CI runs the same logic in `.github/workflows/design-system.yml` — see that fil
 
 ## History
 
+- **2026-07-29** — **R6 was broken, and had been since it shipped.** Its pattern,
+  `[â-ââ­ð][-¿][-¿]`, reads as one byte set
+  containing the ranges `-â`, `-â` and `­-ð` — nearly every high
+  byte — so it flagged every em dash, ellipsis, curly quote, box-drawing rule and
+  geometric shape in the repository. 223 hits, none of them emoji, none of them
+  ever clearable. Rewritten as one alternative per UTF-8 lead byte; R6 now reports 0.
+
+  Two things follow, both worth knowing:
+
+  **This gate has not been passing.** The baseline was last written at
+  `3e27d809` (2026-07-21) claiming 89 across 3 rules; running the linter at that
+  same commit gives **255 across 5**. The snapshot was recorded without the
+  totals it claimed to summarise, so CI has been failing the design-system
+  workflow on a phantom regression ever since.
+
+  **The `--json` the gate parses could be malformed.** Matched lines were cut to
+  160 *bytes*, which split multi-byte characters in this repo's Japanese and
+  Korean copy; the CI step reads that output with `json.load`, so a broken
+  sequence took the gate down with a Python traceback rather than a lint report.
+  Truncation now drops dangling bytes (`clip160`).
+
+  Genuine drift over the same period was **+2** (R1 2→3, R2 82→83), both in
+  `plugin-ulanzi`. Absorbed into the new baseline rather than fixed here — that
+  is a different surface and a separate change.
 - **2026-05-09** — Foundation install. Baseline 111.
 - **2026-05-10** — Phase 2 hotspot migration. apme-dashboard.html (11 → 0) + plugin PI HTMLs (7 → 0) + Motion pulse/wiggle tokens added to CSS. Baseline 93.
 - **2026-07-18** — Legacy docs hub replaced by the token-driven design-system viewer. Baseline 89.

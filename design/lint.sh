@@ -65,13 +65,24 @@ emit() {
   RECORDS+=("$rule|$file|$line|$text")
 }
 
+# Trim a matched line to 160 bytes for the report, without leaving half a
+# character behind. `${text:0:160}` is byte-based unless the locale says
+# otherwise, and this repo's sources are full of Japanese and Korean copy — a
+# cut landing mid-sequence emitted a lone replacement byte, which is how the
+# `--json` output the CI gate parses ended up malformed. `iconv -c` drops the
+# dangling bytes; if iconv is missing the raw cut is still better than nothing.
+clip160() {
+  local s="${1:0:160}"
+  printf '%s' "$s" | iconv -f utf-8 -t utf-8 -c 2>/dev/null || printf '%s' "$s"
+}
+
 scan() {
   local rule="$1" pattern="$2" exclude="${3:-__never__}"
   while IFS=: read -r file line text; do
     [[ -z "$file" ]] && continue
     [[ "$file" =~ $exclude ]] && continue
     text="${text#"${text%%[![:space:]]*}"}"   # ltrim
-    emit "$rule" "$file" "$line" "${text:0:160}"
+    emit "$rule" "$file" "$line" "$(clip160 "$text")"
   done < <(grep -rnHE --include='*.html' --include='*.css' --include='*.jsx' --include='*.js' \
             --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=.github \
             --exclude-dir=dist --exclude-dir=coverage --exclude-dir=generated \
@@ -108,10 +119,23 @@ scan "R5_non_warm_shadow" \
   'box-shadow:[^;]*rgba\(\s*0\s*,\s*0\s*,\s*0\s*,' \
   "$TOKEN_FILES"
 
-# ── Rule R6: emoji in product UI (covers most ranges used in slop) ─────
-# Hits BMP emoji & symbols ranges; opt-out via data-allow-emoji=""
+# ── Rule R6: emoji in product UI ───────────────────────────────────────
+# One alternative per UTF-8 lead byte, NOT one bracket set over all of them.
+# The previous form — [\xE2\x98-\xE2\x9F\xE2\xAD\xF0\x9F] — read as a single
+# byte set containing the ranges \x98-\xE2 and \x9F-\xE2 and \xAD-\xF0, i.e.
+# nearly every high byte, so it flagged every em dash, ellipsis, curly quote,
+# box-drawing rule and geometric shape in the repository. That is why R6 sat at
+# ~220 hits it could never clear, and why the baseline below silently stopped
+# matching reality.
+#
+# Covered, deliberately: U+2600-27BF (symbols + dingbats), U+2B00-2BFF,
+# U+FE0F (the variation selector that turns a glyph into an emoji), and
+# U+1F000-1FBFF (the emoji planes).
+# Excluded, also deliberately: U+2014/2019/2026 punctuation, U+2500-257F box
+# drawing and U+25A0-25FF geometric shapes — the TUI and the option strip are
+# built out of those, and they are typography, not decoration.
 scan "R6_emoji_in_ui" \
-  $'[\xE2\x98-\xE2\x9F\xE2\xAD\xF0\x9F][\x80-\xBF][\x80-\xBF]' \
+  $'\xE2[\x98-\x9E][\x80-\xBF]|\xE2[\xAC-\xAF][\x80-\xBF]|\xEF\xB8\x8F|\xF0\x9F[\x80-\xBF][\x80-\xBF]' \
   "$TOKEN_FILES"
 
 # ── Rule R7: non-token border-radius ───────────────────────────────────
