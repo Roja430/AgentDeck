@@ -52,6 +52,7 @@ import { fetchUsageFromApi, hasOAuthToken } from './usage-api.js';
 import { buildUsageEvent } from './usage-event.js';
 import { getLanIp } from '@agentdeck/shared';
 import { buildEnrichedSessionsList, pendingPromptOf } from './session-aggregator.js';
+import { movesStateOnSend } from './state-machine.js';
 import { migrateHooksIfNeeded } from './hook-migration.js';
 import {
   initModules,
@@ -834,13 +835,9 @@ export async function startSession(opts: SessionOptions): Promise<void> {
 
     // Adapter-owned commands
     if (adapter.handleCommand(cmd)) {
-      switch (cmd.type) {
-        case 'respond': core.stateMachine.handleUserAction('respond'); break;
-        case 'interrupt': core.stateMachine.handleUserAction('interrupt'); break;
-        case 'escape': core.stateMachine.handleUserAction('interrupt'); break;
-        case 'select_option': core.stateMachine.handleUserAction('select_option'); break;
-        case 'send_prompt': core.stateMachine.handleUserAction('send_prompt'); break;
-      }
+      // See movesStateOnSend: answering a prompt is the agent's move to make,
+      // not ours to announce. The parser reports it when the screen changes.
+      if (movesStateOnSend(cmd.type)) core.stateMachine.handleUserAction('send_prompt');
       return;
     }
 
@@ -858,7 +855,8 @@ export async function startSession(opts: SessionOptions): Promise<void> {
         } else {
           adapter.writeInput(String(cmd.index + 1) + '\r');
         }
-        core.stateMachine.handleUserAction('select_option');
+        // No state change here either — the keystrokes are out, and whether
+        // the TUI acted on them is something only the screen can say.
         break;
       }
 

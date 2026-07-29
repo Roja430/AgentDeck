@@ -148,9 +148,14 @@ function sendFocusedSessionCommand(command: { type: string; [key: string]: unkno
     focused.agentType !== 'openclaw' &&
     (focused.port > 0 || focused.controlMode === 'observed')
   ) {
+    dinfo('Plugin', `-> session_command ${command.type} to ${focused.id}`);
     connMgr.send({ type: 'session_command', sessionId: focused.id, command } as any);
     return;
   }
+  // The bare fallback only lands if the daemon happens to hold a focus of its
+  // own; with no focused session it is dropped without a word. Say so, because
+  // from the deck this is indistinguishable from a key that did nothing.
+  dinfo('Plugin', `-> bare ${command.type} (no focused session — daemon may drop this)`);
   connMgr.send(command as any);
 }
 
@@ -191,7 +196,7 @@ setUsageRefreshCallback(() => {
 });
 // ---- Initialize v4 session slot buttons ----
 initSessionSlots((result) => {
-  dlog('Plugin', `sessionSlot action: ${result.action} session=${result.sessionId ?? '-'} port=${result.sessionPort ?? '-'}`);
+  dinfo('Plugin', `sessionSlot action: ${result.action} session=${result.sessionId ?? '-'} port=${result.sessionPort ?? '-'}`);
 
   switch (result.action) {
     case 'enter-detail': {

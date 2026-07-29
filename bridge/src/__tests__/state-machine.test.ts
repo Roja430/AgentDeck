@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { StateMachine } from '../state-machine.js';
+import { StateMachine, movesStateOnSend } from '../state-machine.js';
 import { UsageTracker } from '../usage-tracker.js';
 import { State, PermissionMode } from '../types.js';
 
@@ -655,5 +655,34 @@ describe('StateMachine', () => {
       sm.handleHookEvent('codex_stop', {});
       expect(sm.getState()).toBe(State.IDLE);
     });
+  });
+});
+
+/**
+ * Answering a prompt is the agent's move to make, not the bridge's to announce.
+ *
+ * Forwarding the keystrokes used to move the state machine immediately, which
+ * made the deck disagree with the terminal in both directions: ESC cleared the
+ * options 0.1s after the command went out while the permission prompt was still
+ * on screen (and the edit went through afterwards), and a select_option the TUI
+ * did not act on left the bridge in PROCESSING for two minutes with the
+ * terminal sitting at an idle prompt.
+ */
+describe('movesStateOnSend', () => {
+  it('lets a submitted prompt move the state', () => {
+    // The user did this one; there is no prompt to falsely clear, and
+    // IDLE -> PROCESSING is true the moment the text goes out.
+    expect(movesStateOnSend('send_prompt')).toBe(true);
+  });
+
+  it('refuses to move the state for anything that answers a prompt', () => {
+    for (const cmd of ['respond', 'select_option', 'escape', 'interrupt']) {
+      expect(movesStateOnSend(cmd), cmd).toBe(false);
+    }
+  });
+
+  it('refuses anything it does not recognise', () => {
+    expect(movesStateOnSend('navigate_option')).toBe(false);
+    expect(movesStateOnSend('')).toBe(false);
   });
 });

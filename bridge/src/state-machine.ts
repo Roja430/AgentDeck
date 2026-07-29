@@ -49,6 +49,28 @@ function truncateToolInput(s: string): string {
   return line.length > 120 ? line.slice(0, 119) + '\u2026' : line;
 }
 
+/**
+ * May forwarding this command move the state machine by itself?
+ *
+ * Only `send_prompt`. Everything else the deck sends is an *answer* to a prompt
+ * the agent is showing, and writing the bytes is not the same as the agent
+ * acting on them — measured, twice:
+ *
+ *  - ESC cleared the deck's options 0.1s after the command was forwarded while
+ *    the terminal still had the permission prompt on screen, and the edit went
+ *    through afterwards. The deck said the prompt was gone; it was not.
+ *  - A `select_option` the TUI did not act on left the bridge in PROCESSING for
+ *    two minutes while the terminal sat at an idle prompt.
+ *
+ * The output parser watches the actual screen and is the only thing that knows.
+ * Submitting a prompt is different in kind: the user did that, there is no
+ * prompt to falsely clear, and IDLE -> PROCESSING is true the moment the text
+ * goes out.
+ */
+export function movesStateOnSend(commandType: string): boolean {
+  return commandType === 'send_prompt';
+}
+
 export class StateMachine extends EventEmitter {
   private state: State = State.DISCONNECTED;
   private permissionMode: PermissionMode = PermissionMode.DEFAULT;

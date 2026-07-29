@@ -30,7 +30,7 @@ import {
 import { svgToDataUrl } from '../renderers/button-renderer.js';
 import { renderUsageGauge } from '../renderers/usage-gauge.js';
 import { renderStatusReadout, renderSessionReadout } from '../renderers/display-tile.js';
-import { dlog } from '../log.js';
+import { dlog, dinfo } from '../log.js';
 import { isDisplayDimmed, dimActionIfNeeded } from '../display-dim.js';
 import { openAgentDeckAppOrGitHub } from '../utility-modes/macos.js';
 
@@ -428,7 +428,11 @@ export class SessionSlotButtonAction extends SingletonAction {
     }
 
     const result = manager.handleSlotPress(slot, layout);
-    dlog('SesSlot', `keyDown: slot=${slot} action=${result.action}`);
+    // INFO, not debug. "I pressed it and nothing happened" is the single most
+    // common report about this deck, and answering it needs to start with
+    // whether the press arrived at all and what the key was showing when it
+    // did. Debug level meant that question could only ever be guessed at.
+    dinfo('SesSlot', `keyDown: slot=${slot} view=${manager.view} tile=${manager.getSlotConfig(slot, layout).type} action=${result.action}`);
 
     if (result.action === 'next-page') {
       manager.nextPage(layout);
