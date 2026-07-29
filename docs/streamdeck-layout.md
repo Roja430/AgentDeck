@@ -104,22 +104,48 @@ presented as "works for a session that prompts while focused, never works for
 one that was already waiting". See
 [protocol.md → A pending prompt is state, not an event](protocol.md#a-pending-prompt-is-state-not-an-event).
 
-### Bundled profiles are not declared in the manifest
+### The PROFILE key
 
-The `.streamDeckProfile` bundles still ship in the plugin folder, but the
-manifest's `Profiles` array is gone. With it present, a **dev-linked** plugin
-makes Stream Deck put up "this plugin contains preconfigured profiles — install
-them?" on *every* app start, forever: it never records that they were installed.
-Verified by restarting the app and counting its visible windows — two (main +
-modal) with the array present, one without. `AutoInstall: false` does not help;
-the declaration alone is the trigger.
+The last key of the **list** view hands the deck back to whatever profile was
+active before AgentDeck (`switchToProfile` with no profile name). The detail
+view is a separate builder and that same physical key is STOP there, so opening
+a session takes the profile switch away and gives back the control that matters
+while an agent is running.
 
-Cost of removing it: `switchToProfile` only accepts profiles the manifest
-declares, so the plugin can no longer pull the deck onto its own profile when a
-Stream Deck+ connects. In practice the profile stays selected across restarts,
-and the profile itself installs and works exactly as before. Restore the array
-if the plugin is ever packaged and distributed normally — a packaged install
-records the profiles and prompts once.
+It yields, never displaces: to a session when the list needs the key, and to
+`NEXT->` when the list paginates. A session you cannot reach is a worse deck
+than a profile switch you make from the Stream Deck app, which is where that
+control lives anyway.
+
+The SDK allows exactly two moves — switch to a profile the plugin ships, or
+return to the previous one. **A user-created profile cannot be named**, so
+there is no "jump to my gaming profile" key; the return trip is set up from the
+other profile with Elgato's own Switch Profile action, which has no such limit.
+
+### Bundled profiles are declared with `AutoInstall: false`
+
+The manifest declares all three `.streamDeckProfile` bundles, because
+`switchToProfile` only accepts profiles the manifest names — without the array
+the PROFILE key cannot exist at all.
+
+`AutoInstall` is `false` and `DontAutoSwitchWhenInstalled` is `true`: the
+profiles are offered, never imposed. Nothing in the plugin needs them installed
+to work, and rearranging someone's deck on first launch is not ours to do.
+
+**An earlier revision of this section was wrong and is corrected here.** It
+claimed the declaration alone made Stream Deck re-ask "this plugin contains
+preconfigured profiles — install them?" on every app start, and that
+`AutoInstall: false` did not help. Re-tested on 2026-07-29 by restoring the
+exact removed block and restarting the app five times across four flag
+combinations: **the prompt never appeared once**, and `ESDProfileOperationImportFromPlugin`
+never ran. The original diagnosis rested on counting visible windows, and the
+second window is the tray icon, which is always there.
+
+The likeliest real cause is that the plugin was being rebuilt and re-linked
+repeatedly during that session — the prompt fires on plugin install/update, not
+on app start — so it read as "every restart". If it does return, check
+`ESDProfileOperationImportFromPlugin` in the Stream Deck log rather than
+counting windows.
 
 **Commands must be added to `ROUTED_COMMANDS` in `session-focus-relay.ts`.**
 That set is an allowlist and an unlisted command is discarded silently — the

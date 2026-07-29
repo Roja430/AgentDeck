@@ -42,7 +42,7 @@ export interface PresetAction {
 }
 
 export interface SessionSlotConfig {
-  type: 'session' | 'back' | 'info' | 'status' | 'option' | 'esc' | 'stop' | 'next-page' | 'preset' | 'usage' | 'usage-page' | 'empty';
+  type: 'session' | 'back' | 'info' | 'status' | 'option' | 'esc' | 'stop' | 'next-page' | 'preset' | 'usage' | 'usage-page' | 'profile' | 'empty';
   session?: SessionInfo;
   option?: PromptOption;
   optionIndex?: number;
@@ -501,7 +501,7 @@ export class SessionSlotManager {
 
   /** Handle button press. Returns action to take. */
   handleSlotPress(slot: number, layout?: DeckLayout): {
-    action: 'enter-detail' | 'exit-detail' | 'select-option' | 'stop' | 'esc' | 'next-page' | 'send-prompt' | 'open-gateway' | 'switch-model' | 'review-run' | 'fork-session' | 'refresh-usage' | 'cycle-usage-page' | 'none';
+    action: 'enter-detail' | 'exit-detail' | 'select-option' | 'stop' | 'esc' | 'next-page' | 'send-prompt' | 'open-gateway' | 'switch-model' | 'review-run' | 'fork-session' | 'refresh-usage' | 'cycle-usage-page' | 'switch-profile' | 'none';
     sessionId?: string;
     sessionPort?: number;
     optionIndex?: number;
@@ -567,6 +567,9 @@ export class SessionSlotManager {
 
       case 'usage-page':
         return { action: 'cycle-usage-page' };
+
+      case 'profile':
+        return { action: 'switch-profile' };
 
       default:
         return { action: 'none' };
@@ -675,6 +678,22 @@ export class SessionSlotManager {
         }
         return { type: 'empty' };
       }
+    }
+
+    // Profile switch, on the last list key — but only when nothing else needs
+    // it. It yields to a session and to NEXT->, never the other way round: a
+    // session you cannot reach is a worse deck than a profile you have to
+    // switch from the Stream Deck app, which is where that control lives
+    // anyway. So the tile is there on a deck with room to spare, and gone on
+    // a full one.
+    //
+    // Placed ahead of the no-sessions block, which returns early and would
+    // otherwise leave this key empty on exactly the screen where the user is
+    // most likely to want to be somewhere else. The detail view is a separate
+    // builder, so none of this can displace STOP there.
+    const lastListSlot = layout.keyCount - 1 - usageReserve;
+    if (slot === lastListSlot && this.slotSpan() <= lastListSlot && !this.needsPagination(layout)) {
+      return { type: 'profile', label: 'PROFILE' };
     }
 
     if (this._sessions.length === 0) {

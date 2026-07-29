@@ -511,6 +511,17 @@ export function renderBackButton(): string {
   return renderStatusCard({ icon: 'back', label: 'BACK', subtitle: 'sessions', tone: 'muted' });
 }
 
+/**
+ * Leaves the AgentDeck profile for whichever one was active before it.
+ *
+ * Only ever drawn in the list view: the same physical key is STOP once a
+ * session is open, and losing STOP mid-run to a profile switch would be the
+ * worst possible trade.
+ */
+export function renderProfileButton(): string {
+  return renderStatusCard({ icon: 'open-app', label: 'PROFILE', subtitle: 'switch', tone: 'muted' });
+}
+
 export function renderNextPageButton(pageLabel: string): string {
   return renderStatusCard({ icon: 'more', label: 'MORE', subtitle: pageLabel, tone: 'info' });
 }

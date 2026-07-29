@@ -558,3 +558,66 @@ describe('SessionSlotManager list-view usage tiles', () => {
     expect(manager.getSlotConfig(0, SD_CLASSIC_LAYOUT)).toMatchObject({ type: 'status', label: 'HUB READY' });
   });
 });
+
+/**
+ * The profile tile hands the deck back to whatever profile was active before
+ * AgentDeck. It lives on the last list key, which is the same physical key the
+ * detail view uses for STOP — so the one thing that must never happen is it
+ * appearing while a session is open.
+ */
+describe('profile switch tile', () => {
+  const configs = (m: SessionSlotManager, layout: DeckLayout) =>
+    Array.from({ length: layout.keyCount }, (_, i) => m.getSlotConfig(i, layout));
+
+  it('sits on the last key of an SD+ list view', () => {
+    const m = new SessionSlotManager();
+    m.updateSessions([makeSession()]);
+    const c = configs(m, SD_PLUS_LAYOUT);
+    expect(c[SD_PLUS_LAYOUT.keyCount - 1].type).toBe('profile');
+  });
+
+  it('is there before any session has started', () => {
+    // The empty deck is exactly when you are most likely to want to be
+    // somewhere else, and the no-sessions branch used to return early.
+    const m = new SessionSlotManager();
+    m.updateSessions([]);
+    expect(configs(m, SD_PLUS_LAYOUT)[SD_PLUS_LAYOUT.keyCount - 1].type).toBe('profile');
+  });
+
+  it('never appears in the detail view, where that key is the STOP/ESC control', () => {
+    const m = new SessionSlotManager();
+    m.updateSessions([makeSession({ state: State.PROCESSING })]);
+    m.enterDetailView('session-1');
+    m.updateDetailState(State.PROCESSING, []);
+    const c = configs(m, SD_PLUS_LAYOUT);
+    expect(c.filter((x) => x.type === 'profile')).toHaveLength(0);
+    expect(c[SD_PLUS_LAYOUT.keyCount - 1].type).toBe('stop');
+  });
+
+  it('yields the key to a session rather than pushing one off the deck', () => {
+    const m = new SessionSlotManager();
+    m.updateSessions(Array.from({ length: SD_PLUS_LAYOUT.keyCount }, (_, i) =>
+      makeSession({ id: `s${i}`, projectName: `p${i}` })));
+    const c = configs(m, SD_PLUS_LAYOUT);
+    expect(c.filter((x) => x.type === 'profile')).toHaveLength(0);
+    expect(c.filter((x) => x.type === 'session')).toHaveLength(SD_PLUS_LAYOUT.keyCount);
+  });
+
+  it('yields to NEXT-> when the list has to paginate', () => {
+    // A session you cannot page to is worse than a profile switch you have to
+    // make from the Stream Deck app, which is where that control lives anyway.
+    const m = new SessionSlotManager();
+    m.updateSessions(Array.from({ length: 12 }, (_, i) =>
+      makeSession({ id: `s${i}`, projectName: `p${i}` })));
+    const c = configs(m, SD_PLUS_LAYOUT);
+    expect(c.filter((x) => x.type === 'profile')).toHaveLength(0);
+    expect(c.filter((x) => x.type === 'next-page')).toHaveLength(1);
+  });
+
+  it('asks for a profile switch when pressed', () => {
+    const m = new SessionSlotManager();
+    m.updateSessions([makeSession()]);
+    expect(m.handleSlotPress(SD_PLUS_LAYOUT.keyCount - 1, SD_PLUS_LAYOUT).action)
+      .toBe('switch-profile');
+  });
+});
