@@ -686,3 +686,64 @@ describe('movesStateOnSend', () => {
     expect(movesStateOnSend('')).toBe(false);
   });
 });
+
+/**
+ * A prompt is drawn over several PTY chunks, so the first parse can land on a
+ * partial option list. The reported case: the deck showed
+ * "1. Yes / 2. Yes, allow all edits" with a 2/2 counter while the terminal
+ * offered three. The fuller re-parse reached the state machine and was thrown
+ * away, because transition() has no AWAITING_PERMISSION -> AWAITING_PERMISSION
+ * entry and silently drops anything the table does not list.
+ */
+describe('a re-parse can correct a partial option list', () => {
+  function awaitingPermission() {
+    const sm = bootToIdle();
+    sm.handleHookEvent('UserPromptSubmit', {});
+    sm.handleParserEvent('permission_prompt', {
+      // What the first chunk showed: the third row had not been drawn yet.
+      options: [{ index: 0, label: 'Yes' }, { index: 1, label: 'Yes, allow all edits' }],
+      question: 'Do you want to make this edit to test.txt?',
+    });
+    return sm;
+  }
+
+  it('emits the fuller list instead of discarding it', () => {
+    const sm = awaitingPermission();
+    const seen: number[] = [];
+    sm.on('state_changed', (snap: { options: unknown[] }) => seen.push(snap.options.length));
+
+    sm.handleParserEvent('permission_prompt', {
+      options: [
+        { index: 0, label: 'Yes' },
+        { index: 1, label: 'Yes, allow all edits' },
+        { index: 2, label: 'No' },
+      ],
+      question: 'Do you want to make this edit to test.txt?',
+    });
+
+    expect(sm.getSnapshot().options).toHaveLength(3);
+    expect(seen).toContain(3);
+  });
+
+  it('stays in AWAITING_PERMISSION while doing it', () => {
+    const sm = awaitingPermission();
+    sm.handleParserEvent('permission_prompt', {
+      options: [{ index: 0, label: 'Yes' }, { index: 1, label: 'No' }],
+    });
+    expect(sm.getState()).toBe(State.AWAITING_PERMISSION);
+  });
+
+  it('does the same for a diff prompt', () => {
+    const sm = bootToIdle();
+    sm.handleHookEvent('UserPromptSubmit', {});
+    sm.handleParserEvent('diff_prompt', { options: [{ index: 0, label: 'Accept' }] });
+    const seen: number[] = [];
+    sm.on('state_changed', (snap: { options: unknown[] }) => seen.push(snap.options.length));
+
+    sm.handleParserEvent('diff_prompt', {
+      options: [{ index: 0, label: 'Accept' }, { index: 1, label: 'Reject' }],
+    });
+    expect(sm.getSnapshot().options).toHaveLength(2);
+    expect(seen).toContain(2);
+  });
+});

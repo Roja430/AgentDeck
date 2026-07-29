@@ -228,7 +228,20 @@ export class StateMachine extends EventEmitter {
         this.question = (data?.question as string) || null;
         this.navigable = (data?.navigable as boolean) ?? false;
         this.cursorIndex = (data?.cursorIndex as number) ?? 0;
-        this.transition(State.AWAITING_PERMISSION, 'permission_prompt', 'pty');
+        if (this.state === State.AWAITING_PERMISSION) {
+          // Already here — re-emit instead of transitioning, exactly as
+          // option_prompt does below. A prompt is drawn over several PTY
+          // chunks, so the first parse can land on a partial list: the deck
+          // showed "1. Yes / 2. Yes, allow all edits" with a 2/2 counter while
+          // the terminal offered three. The fuller re-parse updated
+          // `this.options` and then hit transition(), which has no
+          // AWAITING_PERMISSION -> AWAITING_PERMISSION entry, so it was
+          // discarded as invalid and the third option never left the bridge.
+          debug('SM', `permission_prompt update: ${this.options.length} options, nav=${this.navigable}, cursor=${this.cursorIndex}`);
+          this.emitSnapshot();
+        } else {
+          this.transition(State.AWAITING_PERMISSION, 'permission_prompt', 'pty');
+        }
         break;
       }
 
@@ -250,7 +263,13 @@ export class StateMachine extends EventEmitter {
 
       case 'diff_prompt': {
         this.options = (data?.options as PromptOption[]) || [];
-        this.transition(State.AWAITING_DIFF, 'diff_ui_detected', 'pty');
+        if (this.state === State.AWAITING_DIFF) {
+          // Same reasoning as the two above: a re-parse must be able to correct
+          // a partial list without needing a state change to carry it out.
+          this.emitSnapshot();
+        } else {
+          this.transition(State.AWAITING_DIFF, 'diff_ui_detected', 'pty');
+        }
         break;
       }
 
