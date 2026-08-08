@@ -82,6 +82,60 @@ describe('listRecentProjects', () => {
     expect(listRecentProjects({ dir: join(root, 'nope'), now: NOW })).toEqual([]);
   });
 
+  /**
+   * `cwd` is written per record, so an agent that runs `cd` mid-session leaves a
+   * transcript that names several directories. The launcher has to pick one, and
+   * picking the last one let a subdirectory the session merely visited take the
+   * project's place on the dial.
+   */
+  describe('a session that changed directory', () => {
+    /** Records in order, each with its own cwd. */
+    function wandering(dirName: string, cwds: string[], ts: number): void {
+      const dir = join(root, dirName);
+      mkdirSync(dir, { recursive: true });
+      const path = join(dir, 'w.jsonl');
+      const lines = cwds.map((cwd, i) => JSON.stringify({
+        type: 'assistant', cwd, timestamp: new Date(ts - (cwds.length - 1 - i) * 1000).toISOString(),
+      }));
+      writeFileSync(path, lines.join('\n') + '\n', 'utf-8');
+      utimesSync(path, new Date(ts), new Date(ts));
+    }
+
+    it('is named by where it spent its time, not where it ended up', () => {
+      wandering('w', ['/work/proj', '/work/proj', '/work/proj/bridge'], NOW);
+      expect(scan().map((p) => p.path)).toEqual(['/work/proj']);
+    });
+
+    it('is named by the project, not the workspace it was launched from', () => {
+      // Starting `claude` in a folder that holds several projects and then
+      // cd-ing into one is a normal way to work. Reading the first cwd would
+      // name the workspace every time and collapse every project into it.
+      wandering('w', ['/work', '/work/proj', '/work/proj', '/work/proj'], NOW);
+      expect(scan().map((p) => p.path)).toEqual(['/work/proj']);
+    });
+
+    it('breaks a tie toward the directory seen first', () => {
+      wandering('w', ['/work/first', '/work/second'], NOW);
+      expect(scan().map((p) => p.path)).toEqual(['/work/first']);
+    });
+
+    it('still reports the newest record as its activity time', () => {
+      // The path question and the recency question have different answers; the
+      // timestamp must keep coming from the end of the file.
+      wandering('w', ['/work/proj', '/work/proj/sub'], NOW);
+      expect(scan()[0].lastActiveAt).toBe(NOW);
+    });
+
+    it('does not let a stray cd defeat the exclusion list', () => {
+      // The whole point of hiding a project is that it stays hidden. Reading the
+      // tail let it come back under the name of whatever subdirectory the
+      // session last entered.
+      wandering('w', ['/work/hidden', '/work/hidden', '/work/hidden/bridge'], NOW);
+      expect(listRecentProjects({ dir: root, home: '/nowhere', now: NOW, exclude: ['/work/hidden'] }))
+        .toEqual([]);
+    });
+  });
+
   describe('home directory', () => {
     // Running `claude` without cd-ing anywhere records the home directory as a
     // project. It is not one, and being recent it outranks real work on a list
@@ -101,5 +155,63 @@ describe('listRecentProjects', () => {
       transcript('nested', 's.jsonl', '/home/me/code/app', NOW);
       expect(scan({ home: '/home/me' }).map((p) => p.path)).toEqual(['/home/me/code/app']);
     });
+  });
+});
+
+/**
+ * Hiding a project from the launcher.
+ *
+ * The list is derived from Claude Code's transcripts, so deleting them is not a
+ * way to hide an entry: it comes back the next time a session runs there, and
+ * takes the conversation history with it on the way out.
+ */
+describe('listRecentProjects exclusions', () => {
+  let root: string;
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'agentdeck-excl-')); });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function write(dirName: string, cwd: string, ts: number): void {
+    const dir = join(root, dirName);
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'a.jsonl');
+    writeFileSync(path, `${JSON.stringify({ type: 'user', cwd, timestamp: new Date(ts).toISOString() })}\n`);
+    utimesSync(path, new Date(ts), new Date(ts));
+  }
+
+  const list = (exclude: string[]) =>
+    listRecentProjects({ dir: root, home: '/nowhere', now: NOW, exclude })
+      .map((p) => p.path);
+
+  it('hides an excluded path', () => {
+    write('a', '/work/keep', NOW - DAY);
+    write('b', '/work/hide', NOW - DAY);
+    expect(list(['/work/hide'])).toEqual(['/work/keep']);
+  });
+
+  it('keeps a project that lives inside an excluded one', () => {
+    // The whole point of the feature: drop the parent from the dial while the
+    // project inside it stays. Prefix matching would take both.
+    write('a', '/work/parent', NOW - DAY);
+    write('b', '/work/parent/child', NOW - 2 * DAY);
+    expect(list(['/work/parent'])).toEqual(['/work/parent/child']);
+  });
+
+  it('ignores a trailing separator', () => {
+    write('a', '/work/hide', NOW - DAY);
+    expect(list(['/work/hide/'])).toEqual([]);
+  });
+
+  it('changes nothing when the list is empty', () => {
+    write('a', '/work/keep', NOW - DAY);
+    expect(list([])).toEqual(['/work/keep']);
+  });
+
+  it.runIf(process.platform === 'win32')('accepts either slash on Windows', () => {
+    // A hand-written settings file contains whichever the user typed, and on
+    // Windows both name the same directory. Failing silently over that would be
+    // a poor trade for a stricter comparison.
+    write('a', 'C:\\work\\hide', NOW - DAY);
+    expect(list(['C:/work/hide'])).toEqual([]);
+    expect(list(['c:\\WORK\\hide'])).toEqual([]);
   });
 });

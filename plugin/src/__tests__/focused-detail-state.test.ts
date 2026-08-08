@@ -201,3 +201,89 @@ describe('FocusedDetailState.adoptPromptFromSession', () => {
     expect(new FocusedDetailState().adoptPromptFromSession(awaiting)).toBeNull();
   });
 });
+
+/**
+ * The other half of the same problem, and the one that reached the hardware.
+ *
+ * The encoder takeover only learns about the world through the focused
+ * snapshot, which a `state_update` normally clears when the prompt is answered.
+ * Miss that one event — the focus relay was reconnecting, measured at four
+ * connects in 94 s — and nothing else ever tells the dials to let go: the four
+ * LCDs keep showing the options, and a press answers a question that is gone.
+ * The list row is the only channel that survives the gap.
+ */
+describe('FocusedDetailState.releasePromptFromSession', () => {
+  const awaiting: SessionInfo = {
+    ...claude,
+    state: State.AWAITING_PERMISSION,
+    question: 'Do you want to overwrite test.txt?',
+    options: [{ index: 0, label: 'Yes' }, { index: 1, label: 'No' }],
+  };
+  const answered: SessionInfo = { ...claude, state: State.IDLE, options: [], question: undefined };
+  /** Past the grace window, so the row is allowed to contradict the snapshot. */
+  const later = (store: FocusedDetailState, row: SessionInfo) =>
+    store.releasePromptFromSession(row, Date.now() + 60_000);
+
+  it('drops a prompt the row says is over', () => {
+    const store = new FocusedDetailState();
+    store.prime(awaiting);
+
+    const next = later(store, answered);
+    expect(next?.options).toEqual([]);
+    expect(next?.question).toBeUndefined();
+    expect(next?.state).toBe(State.IDLE);
+  });
+
+  it('protects a prompt that has only just been raised', () => {
+    // The row can be assembled a moment before the push that raised the prompt
+    // lands. Acting on it immediately would clear and re-adopt on alternate
+    // polls — a flicker worse than the staleness it fixes.
+    const store = new FocusedDetailState();
+    store.prime(awaiting);
+    expect(store.releasePromptFromSession(answered)).toBeNull();
+    expect(store.snapshot?.options).toHaveLength(2);
+  });
+
+  it('keeps the prompt when the row still carries options', () => {
+    // Whatever the row's state field rounds to, options mean the same prompt.
+    const store = new FocusedDetailState();
+    store.prime(awaiting);
+    expect(later(store, { ...awaiting, state: State.PROCESSING })).toBeNull();
+    expect(store.snapshot?.options).toHaveLength(2);
+  });
+
+  it('keeps the prompt while the row is still awaiting', () => {
+    const store = new FocusedDetailState();
+    store.prime(awaiting);
+    expect(later(store, { ...claude, state: State.AWAITING_DIFF, options: [] })).toBeNull();
+  });
+
+  it('ignores a row for a different session', () => {
+    const store = new FocusedDetailState();
+    store.prime(awaiting);
+    expect(later(store, { ...answered, id: 'someone-else' })).toBeNull();
+    expect(store.snapshot?.options).toHaveLength(2);
+  });
+
+  it('does nothing when there is no prompt to drop', () => {
+    const store = new FocusedDetailState();
+    store.prime(claude);
+    expect(later(store, answered)).toBeNull();
+  });
+
+  it('re-arms after a live event raises the next prompt', () => {
+    // The grace window is measured from when the options were set, so a second
+    // prompt gets the same protection the first one had.
+    const store = new FocusedDetailState();
+    store.prime(awaiting);
+    expect(later(store, answered)?.options).toEqual([]);
+
+    store.applyState(state({
+      sessionId: claude.id,
+      state: State.AWAITING_OPTION,
+      options: [{ index: 0, label: 'again' }],
+    }), claude);
+    expect(store.releasePromptFromSession(answered)).toBeNull();
+    expect(store.snapshot?.options.map((o) => o.label)).toEqual(['again']);
+  });
+});

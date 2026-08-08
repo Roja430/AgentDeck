@@ -148,9 +148,14 @@ function sendFocusedSessionCommand(command: { type: string; [key: string]: unkno
     focused.agentType !== 'openclaw' &&
     (focused.port > 0 || focused.controlMode === 'observed')
   ) {
+    dinfo('Plugin', `-> session_command ${command.type} to ${focused.id}`);
     connMgr.send({ type: 'session_command', sessionId: focused.id, command } as any);
     return;
   }
+  // The bare fallback only lands if the daemon happens to hold a focus of its
+  // own; with no focused session it is dropped without a word. Say so, because
+  // from the deck this is indistinguishable from a key that did nothing.
+  dinfo('Plugin', `-> bare ${command.type} (no focused session — daemon may drop this)`);
   connMgr.send(command as any);
 }
 
@@ -191,7 +196,7 @@ setUsageRefreshCallback(() => {
 });
 // ---- Initialize v4 session slot buttons ----
 initSessionSlots((result) => {
-  dlog('Plugin', `sessionSlot action: ${result.action} session=${result.sessionId ?? '-'} port=${result.sessionPort ?? '-'}`);
+  dinfo('Plugin', `sessionSlot action: ${result.action} session=${result.sessionId ?? '-'} port=${result.sessionPort ?? '-'}`);
 
   switch (result.action) {
     case 'enter-detail': {
@@ -460,14 +465,23 @@ connMgr.on('sessions_list', (ev: SessionsListEvent) => {
     } else if (focused && (snapshot?.sessionId !== focused.id || focused.controlMode === 'observed')) {
       primeDetailViewFromSession(focused);
     } else if (focused) {
-      // Self-heal. A prompt raised before this client focused the session sends
-      // no state_update — nothing is coming — so the list row is the only place
-      // it exists. Adopting only fills a gap, so a stale row cannot fight the
-      // live snapshot.
+      // Self-heal, in both directions. A prompt raised before this client
+      // focused the session sends no state_update — nothing is coming — so the
+      // list row is the only place it exists. And a prompt cleared while the
+      // relay was down is invisible the same way: the encoders would keep
+      // offering answers to a question that is gone. The row is the only
+      // channel that survives either gap, so it is read both ways; the state
+      // itself enforces that a stale row cannot fight a live snapshot.
       const adopted = focusedDetailState.adoptPromptFromSession(focused);
       if (adopted) {
         dinfo('Plugin', `adopted prompt for ${focused.id} from sessions_list — ${adopted.options.length} option(s)`);
         renderFocusedDetail(adopted);
+      } else {
+        const released = focusedDetailState.releasePromptFromSession(focused);
+        if (released) {
+          dinfo('Plugin', `released prompt for ${focused.id} — sessions_list says ${focused.state}, no options`);
+          renderFocusedDetail(released);
+        }
       }
     }
   } else {
@@ -513,13 +527,20 @@ connMgr.on('display_state', (ev: {
   const dimEnabled = ev.dim?.enabled !== false;
   const blanks = ev.dim?.mode !== 'min';
   const shouldDim = !ev.displayOn && dimEnabled && blanks;
-  dinfo('Plugin', `display_state: displayOn=${ev.displayOn} enabled=${dimEnabled} mode=${ev.dim?.mode ?? 'off'}`);
+  // The daemon re-sends this every 15 s whether anything changed or not, so an
+  // unconditional INFO here buried the log it was raised to INFO to help read:
+  // 1670 of 1685 lines. Only the edges are news; the repeats stay at debug.
+  const shape = `displayOn=${ev.displayOn} enabled=${dimEnabled} mode=${ev.dim?.mode ?? 'off'}`;
   if (shouldDim && !isDisplayDimmed()) {
+    dinfo('Plugin', `display_state: blanking the deck — ${shape}`);
     setDisplayDimmed(true);
     dimAllActions();
   } else if (!shouldDim && isDisplayDimmed()) {
+    dinfo('Plugin', `display_state: waking the deck — ${shape}`);
     setDisplayDimmed(false);
     broadcastStateUpdate(); // Re-render everything
+  } else {
+    dlog('Plugin', `display_state: ${shape} (no change)`);
   }
 });
 

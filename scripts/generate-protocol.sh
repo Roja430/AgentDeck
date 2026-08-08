@@ -22,27 +22,37 @@ OUT_DIR="${AGENTDECK_PROTOCOL_OUT_DIR:-$PROJECT_DIR/generated/protocol}"
 
 mkdir -p "$OUT_DIR"
 
+# Scratch space for every artifact, moved into OUT_DIR only once its generator
+# succeeded.
+#
+# A shell redirection truncates its target *before* the command runs, so a
+# generator that dies leaves the emptied file behind — and OUT_DIR defaults to
+# the repository, which means a failed run silently destroys a committed
+# artifact. That is not hypothetical: on a Windows host where `bash` resolves to
+# WSL's bash, the drift gate's OUT_DIR override does not cross the WSL boundary
+# (WSL forwards only variables named in WSLENV), so the script writes to the
+# real directory and `ts-json-schema-generator` then fails — leaving
+# bridge-event-schema.json truncated to a stub in the working tree.
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# Emit one JSON Schema. Nothing touches OUT_DIR unless the generator exits 0 —
+# `set -e` aborts the whole script before the `mv` otherwise.
+gen_schema() {
+  local src="$1" type="$2" out="$3"
+  npx ts-json-schema-generator \
+    --path "$PROJECT_DIR/$src" \
+    --type "$type" \
+    --tsconfig "$PROJECT_DIR/shared/tsconfig.json" \
+    --no-type-check \
+    > "$TMP_DIR/$out"
+  mv "$TMP_DIR/$out" "$OUT_DIR/$out"
+}
+
 echo "=== Step 1: Generate JSON Schema from TypeScript ==="
-npx ts-json-schema-generator \
-  --path "$PROJECT_DIR/shared/src/protocol.ts" \
-  --type "BridgeEvent" \
-  --tsconfig "$PROJECT_DIR/shared/tsconfig.json" \
-  --no-type-check \
-  > "$OUT_DIR/bridge-event-schema.json"
-
-npx ts-json-schema-generator \
-  --path "$PROJECT_DIR/shared/src/protocol.ts" \
-  --type "PluginCommand" \
-  --tsconfig "$PROJECT_DIR/shared/tsconfig.json" \
-  --no-type-check \
-  > "$OUT_DIR/plugin-command-schema.json"
-
-npx ts-json-schema-generator \
-  --path "$PROJECT_DIR/shared/src/gateway-protocol.ts" \
-  --type "GatewayFrame" \
-  --tsconfig "$PROJECT_DIR/shared/tsconfig.json" \
-  --no-type-check \
-  > "$OUT_DIR/gateway-frame-schema.json"
+gen_schema shared/src/protocol.ts BridgeEvent bridge-event-schema.json
+gen_schema shared/src/protocol.ts PluginCommand plugin-command-schema.json
+gen_schema shared/src/gateway-protocol.ts GatewayFrame gateway-frame-schema.json
 
 echo "   → bridge-event-schema.json"
 echo "   → plugin-command-schema.json"

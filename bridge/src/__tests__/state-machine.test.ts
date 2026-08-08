@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { StateMachine } from '../state-machine.js';
+import { StateMachine, movesStateOnSend } from '../state-machine.js';
 import { UsageTracker } from '../usage-tracker.js';
 import { State, PermissionMode } from '../types.js';
 
@@ -655,5 +655,95 @@ describe('StateMachine', () => {
       sm.handleHookEvent('codex_stop', {});
       expect(sm.getState()).toBe(State.IDLE);
     });
+  });
+});
+
+/**
+ * Answering a prompt is the agent's move to make, not the bridge's to announce.
+ *
+ * Forwarding the keystrokes used to move the state machine immediately, which
+ * made the deck disagree with the terminal in both directions: ESC cleared the
+ * options 0.1s after the command went out while the permission prompt was still
+ * on screen (and the edit went through afterwards), and a select_option the TUI
+ * did not act on left the bridge in PROCESSING for two minutes with the
+ * terminal sitting at an idle prompt.
+ */
+describe('movesStateOnSend', () => {
+  it('lets a submitted prompt move the state', () => {
+    // The user did this one; there is no prompt to falsely clear, and
+    // IDLE -> PROCESSING is true the moment the text goes out.
+    expect(movesStateOnSend('send_prompt')).toBe(true);
+  });
+
+  it('refuses to move the state for anything that answers a prompt', () => {
+    for (const cmd of ['respond', 'select_option', 'escape', 'interrupt']) {
+      expect(movesStateOnSend(cmd), cmd).toBe(false);
+    }
+  });
+
+  it('refuses anything it does not recognise', () => {
+    expect(movesStateOnSend('navigate_option')).toBe(false);
+    expect(movesStateOnSend('')).toBe(false);
+  });
+});
+
+/**
+ * A prompt is drawn over several PTY chunks, so the first parse can land on a
+ * partial option list. The reported case: the deck showed
+ * "1. Yes / 2. Yes, allow all edits" with a 2/2 counter while the terminal
+ * offered three. The fuller re-parse reached the state machine and was thrown
+ * away, because transition() has no AWAITING_PERMISSION -> AWAITING_PERMISSION
+ * entry and silently drops anything the table does not list.
+ */
+describe('a re-parse can correct a partial option list', () => {
+  function awaitingPermission() {
+    const sm = bootToIdle();
+    sm.handleHookEvent('UserPromptSubmit', {});
+    sm.handleParserEvent('permission_prompt', {
+      // What the first chunk showed: the third row had not been drawn yet.
+      options: [{ index: 0, label: 'Yes' }, { index: 1, label: 'Yes, allow all edits' }],
+      question: 'Do you want to make this edit to test.txt?',
+    });
+    return sm;
+  }
+
+  it('emits the fuller list instead of discarding it', () => {
+    const sm = awaitingPermission();
+    const seen: number[] = [];
+    sm.on('state_changed', (snap: { options: unknown[] }) => seen.push(snap.options.length));
+
+    sm.handleParserEvent('permission_prompt', {
+      options: [
+        { index: 0, label: 'Yes' },
+        { index: 1, label: 'Yes, allow all edits' },
+        { index: 2, label: 'No' },
+      ],
+      question: 'Do you want to make this edit to test.txt?',
+    });
+
+    expect(sm.getSnapshot().options).toHaveLength(3);
+    expect(seen).toContain(3);
+  });
+
+  it('stays in AWAITING_PERMISSION while doing it', () => {
+    const sm = awaitingPermission();
+    sm.handleParserEvent('permission_prompt', {
+      options: [{ index: 0, label: 'Yes' }, { index: 1, label: 'No' }],
+    });
+    expect(sm.getState()).toBe(State.AWAITING_PERMISSION);
+  });
+
+  it('does the same for a diff prompt', () => {
+    const sm = bootToIdle();
+    sm.handleHookEvent('UserPromptSubmit', {});
+    sm.handleParserEvent('diff_prompt', { options: [{ index: 0, label: 'Accept' }] });
+    const seen: number[] = [];
+    sm.on('state_changed', (snap: { options: unknown[] }) => seen.push(snap.options.length));
+
+    sm.handleParserEvent('diff_prompt', {
+      options: [{ index: 0, label: 'Accept' }, { index: 1, label: 'Reject' }],
+    });
+    expect(sm.getSnapshot().options).toHaveLength(2);
+    expect(seen).toContain(2);
   });
 });

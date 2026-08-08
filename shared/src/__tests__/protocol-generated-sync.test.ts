@@ -14,12 +14,59 @@
 // generator.
 import { describe, it, expect, beforeAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
+
+/**
+ * Can the `bash` on PATH actually run the generator?
+ *
+ * On Windows, `bash` is frequently `C:\WINDOWS\system32\bash.exe` — WSL. That
+ * shell reads the repo fine over /mnt/c, but WSL has no Linux node, so its
+ * `npx` falls through PATH interop to the *Windows* node, which is then handed
+ * `/mnt/c/...` paths it cannot open ("TSJ - 108: Cannot read config file").
+ * The gate could never pass there; all it did was fail every local `pnpm test`.
+ *
+ * Returns null when the generator can run, or the reason it cannot.
+ */
+function generatorBlockedBecause(): string | null {
+  let probe: string;
+  try {
+    probe = execFileSync('bash', ['-lc', 'uname -s; command -v node || true'], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+  } catch {
+    return 'no `bash` on PATH';
+  }
+  const [kernel = '', nodePath = ''] = probe.trim().split('\n');
+  if (!nodePath.trim()) return `\`bash\` (${kernel.trim()}) has no node on its PATH`;
+  // A Linux shell driving a Windows checkout is the WSL case above: the shell
+  // and the toolchain disagree about what a path is.
+  if (process.platform === 'win32' && kernel.trim() === 'Linux') {
+    return '`bash` is WSL — its node sees Windows paths, the shell sees /mnt/c';
+  }
+  return null;
+}
+
+const blocked = generatorBlockedBecause();
+if (blocked) {
+  // Loud on purpose. A gate that quietly stops running is worse than one that
+  // fails: CI (Linux) still enforces this, and the developer should know that
+  // their local run is not covering protocol drift.
+  //
+  // Written straight to stderr rather than through `console.warn`: vitest
+  // intercepts console output per test, and this fires at import time in a file
+  // whose every test is skipped — which is exactly when the message is dropped.
+  process.stderr.write(
+    `\n[protocol drift gate] SKIPPED — ${blocked}.\n`
+    + '  Protocol drift is not checked locally on this machine; CI still enforces it.\n'
+    + '  To check by hand: pnpm generate-protocol && git diff --exit-code generated/protocol\n\n',
+  );
+}
 
 // Committed path → basename inside the regenerated output directory.
 const ARTIFACTS: Array<[string, string]> = [
@@ -38,7 +85,7 @@ const ARTIFACTS: Array<[string, string]> = [
   ['shared/src/command-builders.ts', 'command-builders.ts'],
 ];
 
-describe('generated protocol artifacts in sync', () => {
+describe.skipIf(blocked !== null)('generated protocol artifacts in sync', () => {
   let freshDir: string;
 
   beforeAll(() => {
@@ -48,6 +95,19 @@ describe('generated protocol artifacts in sync', () => {
       env: { ...process.env, AGENTDECK_PROTOCOL_OUT_DIR: freshDir },
       stdio: 'pipe',
     });
+    // The override is passed through the environment, and an environment does
+    // not always survive the jump into the shell (WSL forwards only what WSLENV
+    // names). If it were dropped the script would fall back to OUT_DIR's
+    // default — the repository — and this "check" would have quietly rewritten
+    // the very artifacts it is meant to compare against. Catch that here rather
+    // than reporting a suspiciously clean run.
+    if (!existsSync(join(freshDir, 'bridge-event-schema.json'))) {
+      throw new Error(
+        'generate-protocol.sh did not write to AGENTDECK_PROTOCOL_OUT_DIR — the '
+        + 'override did not reach the shell, so it may have written into '
+        + 'generated/protocol instead. Check `git status` before trusting this run.',
+      );
+    }
     return () => rmSync(freshDir, { recursive: true, force: true });
     // The generator shells out to quicktype/ts-json-schema-generator via npx.
     // Both are devDependencies pinned in the lockfile, so this resolves the

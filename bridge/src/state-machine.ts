@@ -49,6 +49,28 @@ function truncateToolInput(s: string): string {
   return line.length > 120 ? line.slice(0, 119) + '\u2026' : line;
 }
 
+/**
+ * May forwarding this command move the state machine by itself?
+ *
+ * Only `send_prompt`. Everything else the deck sends is an *answer* to a prompt
+ * the agent is showing, and writing the bytes is not the same as the agent
+ * acting on them — measured, twice:
+ *
+ *  - ESC cleared the deck's options 0.1s after the command was forwarded while
+ *    the terminal still had the permission prompt on screen, and the edit went
+ *    through afterwards. The deck said the prompt was gone; it was not.
+ *  - A `select_option` the TUI did not act on left the bridge in PROCESSING for
+ *    two minutes while the terminal sat at an idle prompt.
+ *
+ * The output parser watches the actual screen and is the only thing that knows.
+ * Submitting a prompt is different in kind: the user did that, there is no
+ * prompt to falsely clear, and IDLE -> PROCESSING is true the moment the text
+ * goes out.
+ */
+export function movesStateOnSend(commandType: string): boolean {
+  return commandType === 'send_prompt';
+}
+
 export class StateMachine extends EventEmitter {
   private state: State = State.DISCONNECTED;
   private permissionMode: PermissionMode = PermissionMode.DEFAULT;
@@ -206,7 +228,20 @@ export class StateMachine extends EventEmitter {
         this.question = (data?.question as string) || null;
         this.navigable = (data?.navigable as boolean) ?? false;
         this.cursorIndex = (data?.cursorIndex as number) ?? 0;
-        this.transition(State.AWAITING_PERMISSION, 'permission_prompt', 'pty');
+        if (this.state === State.AWAITING_PERMISSION) {
+          // Already here — re-emit instead of transitioning, exactly as
+          // option_prompt does below. A prompt is drawn over several PTY
+          // chunks, so the first parse can land on a partial list: the deck
+          // showed "1. Yes / 2. Yes, allow all edits" with a 2/2 counter while
+          // the terminal offered three. The fuller re-parse updated
+          // `this.options` and then hit transition(), which has no
+          // AWAITING_PERMISSION -> AWAITING_PERMISSION entry, so it was
+          // discarded as invalid and the third option never left the bridge.
+          debug('SM', `permission_prompt update: ${this.options.length} options, nav=${this.navigable}, cursor=${this.cursorIndex}`);
+          this.emitSnapshot();
+        } else {
+          this.transition(State.AWAITING_PERMISSION, 'permission_prompt', 'pty');
+        }
         break;
       }
 
@@ -228,7 +263,13 @@ export class StateMachine extends EventEmitter {
 
       case 'diff_prompt': {
         this.options = (data?.options as PromptOption[]) || [];
-        this.transition(State.AWAITING_DIFF, 'diff_ui_detected', 'pty');
+        if (this.state === State.AWAITING_DIFF) {
+          // Same reasoning as the two above: a re-parse must be able to correct
+          // a partial list without needing a state change to carry it out.
+          this.emitSnapshot();
+        } else {
+          this.transition(State.AWAITING_DIFF, 'diff_ui_detected', 'pty');
+        }
         break;
       }
 
