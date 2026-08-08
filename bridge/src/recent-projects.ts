@@ -8,7 +8,8 @@
  *
  * Directory names under `~/.claude/projects/` are a lossy encoding of the path
  * (separators and spaces both become `-`), so the `cwd` field is read instead of
- * the folder name.
+ * the folder name — the directory the session spent most of its records in. See
+ * `readTranscript` for why neither the last nor the first one works.
  */
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { basename, join } from 'path';
@@ -103,11 +104,36 @@ function loadExclusions(): string[] {
 }
 
 /**
- * Read only the tail of a transcript: `cwd` is identical on every record, so
- * the last non-empty line answers both "where" and "when" without parsing
- * megabytes of conversation.
+ * Where a transcript's session did its work, and when it was last active.
+ *
+ * `cwd` is **not** constant across a transcript — the earlier code assumed it
+ * was and read only the tail. An agent that runs `cd` mid-session writes the
+ * new directory onto every subsequent record, so the tail reports wherever the
+ * session happened to end up. On one machine, four of the recent transcripts
+ * carried between two and nine different values; one ended in a `bridge/`
+ * subdirectory it had visited for 153 records out of 4329, and the launcher
+ * duly offered "bridge" as a project.
+ *
+ * That is worse than cosmetic. It moves an entry's identity around under the
+ * user, and it defeats the exclusion list — a hidden project reappears the
+ * moment a session inside it cd's one level down and reports a path the
+ * exclusion does not name.
+ *
+ * The fix is **the directory the session spent the most records in**, ties
+ * going to the one seen first.
+ *
+ * The launch directory is the tempting alternative, and it is wrong here: many
+ * people start `claude` in a workspace folder holding several projects and then
+ * cd into whichever one they mean to work on. Reading the head names the
+ * workspace every time and collapses the whole list to one entry. Reading the
+ * majority names the project, and a detour of a few dozen records can never
+ * outvote the thousands the real work leaves behind — which is exactly the
+ * stability the exclusion list needs.
+ *
+ * The timestamp comes from the end of the file: that is the recency question,
+ * and the last record is the right answer to it.
  */
-function readTail(path: string): { cwd?: string; ts?: number } {
+function readTranscript(path: string): { cwd?: string; ts?: number } {
   let raw: string;
   try {
     raw = readFileSync(path, 'utf-8');
@@ -115,20 +141,40 @@ function readTail(path: string): { cwd?: string; ts?: number } {
     return {};
   }
   const lines = raw.split('\n');
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line.trim()) continue;
+
+  const parse = (line: string): Record<string, any> | null => {
+    if (!line.trim()) return null;
     try {
-      const row = JSON.parse(line) as Record<string, any>;
-      if (typeof row.cwd === 'string' && row.cwd) {
-        const ts = Date.parse(row.timestamp);
-        return { cwd: row.cwd, ts: Number.isNaN(ts) ? undefined : ts };
-      }
+      return JSON.parse(line) as Record<string, any>;
     } catch {
-      continue; // torn final line while Claude Code is mid-write
+      return null; // torn final line while Claude Code is mid-write
+    }
+  };
+
+  // Insertion order is the first-seen order, so a plain scan for the maximum
+  // resolves ties toward the earlier directory without extra bookkeeping.
+  const counts = new Map<string, number>();
+  let ts: number | undefined;
+  for (const line of lines) {
+    const row = parse(line);
+    if (!row) continue;
+    if (typeof row.cwd === 'string' && row.cwd) {
+      counts.set(row.cwd, (counts.get(row.cwd) ?? 0) + 1);
+    }
+    const parsed = Date.parse(row.timestamp);
+    if (!Number.isNaN(parsed)) ts = parsed;
+  }
+
+  let cwd: string | undefined;
+  let best = 0;
+  for (const [candidate, n] of counts) {
+    if (n > best) {
+      best = n;
+      cwd = candidate;
     }
   }
-  return {};
+
+  return { cwd, ts };
 }
 
 export function listRecentProjects(opts: RecentProjectOptions = {}): RecentProject[] {
@@ -167,7 +213,7 @@ export function listRecentProjects(opts: RecentProjectOptions = {}): RecentProje
       }
       if (mtime < cutoff) continue;
 
-      const { cwd, ts } = readTail(full);
+      const { cwd, ts } = readTranscript(full);
       if (!cwd) continue;
       if (isHomeDir(cwd, home)) continue;
       if (exclude.some((e) => samePath(cwd, e))) continue;

@@ -6,6 +6,17 @@ import {
   type StateUpdateEvent,
 } from '@agentdeck/shared';
 
+/**
+ * How long a freshly raised prompt is protected from a contradicting list row.
+ *
+ * `sessions_list` is rebuilt at broadcast time, so a row is normally current —
+ * but it can be assembled a moment before the push that raised the prompt lands,
+ * and the daemon's liveness grace lets a row ride older state still. Five
+ * seconds covers that ordering window while leaving the strip stale for a
+ * fraction of the time it used to be.
+ */
+const STALE_ROW_GRACE_MS = 5_000;
+
 /** Session-owned state used exclusively by the keypad detail view. */
 export interface FocusedDetailSnapshot {
   sessionId: string;
@@ -52,6 +63,11 @@ function eventSessionId(ev: { sessionId?: string; focusedSessionId?: string }): 
  */
 export class FocusedDetailState {
   private current: FocusedDetailSnapshot | null = null;
+  /**
+   * When the current snapshot's options were last set, so a polled row can be
+   * told apart from a fresh live event. See `releasePromptFromSession`.
+   */
+  private optionsSetAt = 0;
 
   get snapshot(): FocusedDetailSnapshot | null {
     return this.current;
@@ -59,10 +75,18 @@ export class FocusedDetailState {
 
   clear(): void {
     this.current = null;
+    this.optionsSetAt = 0;
+  }
+
+  /** Stamp the snapshot's age, so `optionsSetAt` cannot drift from `options`. */
+  private commit(next: FocusedDetailSnapshot, now = Date.now()): FocusedDetailSnapshot {
+    this.current = next;
+    this.optionsSetAt = next.options.length > 0 ? now : 0;
+    return next;
   }
 
   prime(session: SessionInfo): FocusedDetailSnapshot {
-    this.current = {
+    return this.commit({
       sessionId: session.id,
       state: stateFromSession(session),
       options: session.options ?? [],
@@ -70,8 +94,7 @@ export class FocusedDetailState {
       question: session.question,
       modelName: session.modelName,
       effortLevel: session.effortLevel,
-    };
-    return this.current;
+    });
   }
 
   /**
@@ -97,8 +120,40 @@ export class FocusedDetailState {
       && state !== State.AWAITING_OPTION
       && state !== State.AWAITING_DIFF) return null;
 
-    this.current = { ...current, state, options, question: session.question };
-    return this.current;
+    return this.commit({ ...current, state, options, question: session.question });
+  }
+
+  /**
+   * Drop the prompt when the session's list row says it is no longer waiting.
+   *
+   * The mirror of `adoptPromptFromSession`, and just as necessary. The encoder
+   * takeover only ever learns about the world through `renderFocusedDetail`, so
+   * a prompt that is cleared without a `state_update` reaching this client — the
+   * focus relay reconnecting at the wrong moment is enough — leaves the four
+   * LCDs offering answers to a question that is gone, and a press sends one.
+   * Nothing else was going to notice: the list row is the only other channel,
+   * and it was read one-way.
+   *
+   * The one-way rule existed for a reason, so this does not simply reverse it.
+   * A polled row can be older than the live event that raised the prompt, and
+   * letting a stale row win would make the deck flicker — clear on the old row,
+   * re-adopt on the next. Hence the grace period: a row may only contradict a
+   * prompt that has been on screen longer than the list's own lag.
+   */
+  releasePromptFromSession(session: SessionInfo, now = Date.now()): FocusedDetailSnapshot | null {
+    const current = this.current;
+    if (!current || current.sessionId !== session.id) return null;
+    if (current.options.length === 0) return null;
+    if (now - this.optionsSetAt < STALE_ROW_GRACE_MS) return null;
+    // The row has to agree on both counts. A row that still carries options is
+    // reporting the same prompt, whatever its state field rounds to.
+    if ((session.options ?? []).length > 0) return null;
+    const state = stateFromSession(session);
+    if (state === State.AWAITING_PERMISSION
+      || state === State.AWAITING_OPTION
+      || state === State.AWAITING_DIFF) return null;
+
+    return this.commit({ ...current, state, options: [], question: undefined }, now);
   }
 
   applyState(ev: StateUpdateEvent, focused: SessionInfo): FocusedDetailSnapshot | null {
@@ -117,7 +172,7 @@ export class FocusedDetailState {
     // the way out — so this has to compare as a plain string.
     if (isDaemonAgent(ev.agentType) && !isDaemonAgent(focused.agentType)) return null;
 
-    this.current = {
+    return this.commit({
       sessionId: focused.id,
       state: ev.state,
       options: ev.options ?? [],
@@ -130,8 +185,7 @@ export class FocusedDetailState {
       mode: ev.permissionMode,
       effortLevel: ev.effortLevel ?? focused.effortLevel,
       suggestedPrompt: ev.state === State.IDLE ? ev.suggestedPrompt : undefined,
-    };
-    return this.current;
+    });
   }
 
   applyOptions(ev: PromptOptionsEvent, focused: SessionInfo): FocusedDetailSnapshot | null {
@@ -141,11 +195,10 @@ export class FocusedDetailState {
     const base = this.current?.sessionId === focused.id
       ? this.current
       : this.prime(focused);
-    this.current = {
+    return this.commit({
       ...base,
       options: ev.options,
       question: ev.question,
-    };
-    return this.current;
+    });
   }
 }
